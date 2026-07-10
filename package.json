@@ -1,6 +1,6 @@
 {
   "name": "medusajs-paystack-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A powerful, multi-currency Paystack payment integration designed specifically for Medusa v2. This plugin supports standard checkouts, partial installments, STK push for Mobile Money, and a comprehensive admin widget for manual payments.",
   "main": "./.medusa/server/index.js",
   "exports": {
