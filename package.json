@@ -1,0 +1,61 @@
+{
+  "name": "medusajs-paystack-plugin",
+  "version": "1.0.0",
+  "description": "A powerful, multi-currency Paystack payment integration designed specifically for Medusa v2. This plugin supports standard checkouts, partial installments, STK push for Mobile Money, and a comprehensive admin widget for manual payments.",
+  "main": "./.medusa/server/index.js",
+  "exports": {
+    ".": "./.medusa/server/index.js",
+    "./package.json": "./package.json",
+    "./workflows": "./.medusa/server/workflows/index.js",
+    "./.medusa/server/modules/*": "./.medusa/server/modules/*/index.js",
+    "./modules/*": "./.medusa/server/modules/*/index.js",
+    "./providers/*": "./.medusa/server/providers/*/index.js",
+    "./*": "./.medusa/server/*.js",
+    "./admin": {
+      "import": "./.medusa/server/src/admin/index.mjs",
+      "require": "./.medusa/server/src/admin/index.js",
+      "default": "./.medusa/server/src/admin/index.js"
+    }
+  },
+  "files": [
+    ".medusa/server"
+  ],
+  "scripts": {
+    "build": "medusa plugin:build",
+    "dev": "medusa plugin:dev"
+  },
+  "dependencies": {
+    "@medusajs/admin-sdk": "^2.17.2",
+    "@medusajs/admin-shared": "2.17.2",
+    "@medusajs/framework": "^2.17.2",
+    "@medusajs/js-sdk": "^2.17.2",
+    "@medusajs/ui": "^4.1.15",
+    "@medusajs/utils": "^2.17.2",
+    "axios": "^1.6.0",
+    "react": "^18.2.0",
+    "react-is": "^19.2.7",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@medusajs/cli": "^2.17.2",
+    "@medusajs/medusa": "^2.17.2",
+    "@medusajs/types": "^2.17.2",
+    "@types/mute-stream": "^0.0.4",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-is": "^19",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "medusa",
+    "medusajs",
+    "plugin",
+    "medusa-plugin",
+    "paystack",
+    "payment",
+    "medusa-payment"
+  ],
+  "author": "enomshop",
+  "license": "MIT"
+}

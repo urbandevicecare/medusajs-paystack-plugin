@@ -1,0 +1,56 @@
+name: Bump and Publish
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-bump-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org/'
+
+      # 1. Install dependencies
+      - run: yarn install
+
+      # 2. Configure Git for the bump
+      - name: Git Config
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+
+      # 3. Bump version (patch), commit, and tag
+      # Use [skip ci] in the message to prevent an infinite loop
+      - name: Bump Version
+        id: bump_version
+        run: |
+          npm version patch -m "chore: bump version to %s [skip ci]"
+          echo "VERSION=$(node -p 'require(\"./package.json\").version')" >> $GITHUB_ENV
+
+      # 4. Push the new version and tag back to GitHub
+      - name: Push changes
+        run: git push --follow-tags
+
+      # 5. Publish to npm using your secret token
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # 6. Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          generate_release_notes: true
