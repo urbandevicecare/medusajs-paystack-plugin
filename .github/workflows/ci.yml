@@ -24,17 +24,22 @@ jobs:
       # 1. Install dependencies
       - run: yarn install
 
-      # 2. Configure Git for the bump
+      # 2. Build the plugin (Critical! Otherwise .medusa/server won't be in the npm package)
+      - run: yarn build
+
+      # 3. Configure Git for the bump
       - name: Git Config
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@://github.com"
 
-      # 3. Bump version (patch), commit, and tag
+      # 4. Bump version (patch), commit, and tag
       # Use [skip ci] in the message to prevent an infinite loop
+      # We restore any modified files (like yarn.lock) to keep git clean for npm version
       - name: Bump Version
         id: bump_version
         run: |
+          git restore .
           npm version patch -m "chore: bump version to %s [skip ci]"
           echo "VERSION=$(node -p 'require(\"./package.json\").version')" >> $GITHUB_ENV
 
