@@ -40,12 +40,12 @@ export default async function syncPaystackTransactions({
           {}
         );
 
-        if (authorizedSession.status === "captured") {
+        if (authorizedSession && authorizedSession.captured_at) {
           verifiedCount++;
         }
         
         logger.info(
-          `Checked session ${session.id}. New status: ${authorizedSession.status}`
+          `Checked session ${session.id}. Captured_at: ${authorizedSession?.captured_at}`
         );
       } catch (err: any) {
         logger.error(`Error verifying session ${session.id}: ${err.message}`);
