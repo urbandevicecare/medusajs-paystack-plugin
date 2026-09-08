@@ -23,6 +23,7 @@ import {
   WebhookActionResult,
   CancelPaymentInput,
   CancelPaymentOutput,
+  ProviderWebhookPayload,
 } from "@medusajs/types";
 import {
   MedusaError,
@@ -58,21 +59,46 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   protected readonly paystack: PaystackClient;
   protected readonly debug: boolean;
 
+  static validateOptions(options: PaystackPaymentProcessorConfig): void {
+    const secretKey =
+      options?.secret_key ||
+      (options as any)?.secretKey ||
+      (options as any)?.apiKey ||
+      process.env.PAYSTACK_SECRET_KEY ||
+      process.env.PAYSTACK_TEST_SECRET_KEY ||
+      process.env.PAYSTACK_KEY;
+
+    if (!secretKey) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_ARGUMENT,
+        "The Paystack provider requires the secret_key option (or PAYSTACK_SECRET_KEY in environment)",
+      );
+    }
+  }
+
   constructor(
     container: Record<string, unknown>,
     options: PaystackPaymentProcessorConfig,
   ) {
     super(container, options);
 
-    if (!options.secret_key) {
+    const secretKey =
+      options?.secret_key ||
+      (options as any)?.secretKey ||
+      (options as any)?.apiKey ||
+      process.env.PAYSTACK_SECRET_KEY ||
+      process.env.PAYSTACK_TEST_SECRET_KEY ||
+      process.env.PAYSTACK_KEY;
+
+    if (!secretKey) {
       throw new MedusaError(
         MedusaError.Types.INVALID_ARGUMENT,
         "The Paystack provider requires the secret_key option",
       );
     }
 
-    this.configuration = options;
-    this.paystack = new PaystackClient(this.configuration.secret_key);
+    this.configuration = { ...options, secret_key: secretKey };
+    this.paystack = new PaystackClient(secretKey);
     this.debug = Boolean(options.debug);
   }
 
@@ -85,14 +111,25 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
 
     const { data, amount, currency_code } = input;
     const contextAny = input.context as any;
-    const email = (data?.email as string) || (contextAny?.email as string) || (contextAny?.customer?.email as string) || (contextAny?.billing_address?.email as string);
+    const email =
+      (data?.email as string) ||
+      (contextAny?.email as string) ||
+      (contextAny?.customer?.email as string) ||
+      (contextAny?.billing_address?.email as string) ||
+      (contextAny?.account_holder?.data?.email as string);
     const session_id = data?.session_id as string | undefined;
 
-    if (!email) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_ARGUMENT,
-        "Email is required to initiate a Paystack payment.",
-      );
+    // In Medusa v2 checkout, payment sessions can be initialized before a guest customer enters their email.
+    // Return a pending session placeholder so cart creation succeeds; updatePayment will initialize with Paystack once email is provided.
+    if (!email && !data?.stk_push) {
+      return {
+        id: session_id || `ps_pending_${Date.now()}`,
+        status: PaymentSessionStatus.PENDING,
+        data: {
+          ...data,
+          emailPending: true,
+        } as any,
+      };
     }
 
     try {
@@ -132,8 +169,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
 
       const response = await this.paystack.transaction.initialize({
         amount: paystackAmount,
-        email,
-        currency: currency_code.toUpperCase(),
+        email: email as string,
+        currency: (currency_code || "NGN").toUpperCase(),
         reference: customReference,
         metadata: {
           session_id,
@@ -160,10 +197,11 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       };
     } catch (error: any) {
       if (this.debug) console.error("PS_P_Debug: InitiatePayment: Error", error);
+      const errMsg = error?.response?.data?.message || error?.message || error?.toString() || "Unknown error";
       throw new MedusaError(
         MedusaError.Types.UNEXPECTED_STATE,
         "Failed to initiate Paystack payment",
-        error?.toString() ?? "Unknown error",
+        errMsg,
       );
     }
   }
@@ -234,10 +272,11 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       }
     } catch (error: any) {
       if (this.debug) console.error("PS_P_Debug: AuthorizePayment: Error", error);
+      const errMsg = error?.response?.data?.message || error?.message || error?.toString() || "Unknown error";
       throw new MedusaError(
         MedusaError.Types.UNEXPECTED_STATE,
         "Failed to authorize payment",
-        error?.toString() ?? "Unknown error",
+        errMsg,
       );
     }
   }
@@ -277,10 +316,11 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       };
     } catch (error: any) {
       if (this.debug) console.error("PS_P_Debug: RetrievePayment: Error", error);
+      const errMsg = error?.response?.data?.message || error?.message || error?.toString() || "Unknown error";
       throw new MedusaError(
         MedusaError.Types.UNEXPECTED_STATE,
         "Failed to retrieve payment",
-        error?.toString() ?? "Unknown error",
+        errMsg,
       );
     }
   }
@@ -289,12 +329,12 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     if (this.debug) console.info("PS_P_Debug: RefundPayment", JSON.stringify(input, null, 2));
 
     try {
-      const { paystackTxId } = input.data as AuthorizedPaystackPaymentProviderSessionData;
+      const { paystackTxId, paystackTxRef } = input.data as AuthorizedPaystackPaymentProviderSessionData;
 
-      if (!paystackTxId) {
+      if (!paystackTxId && !paystackTxRef) {
         throw new MedusaError(
           MedusaError.Types.INVALID_DATA,
-          "Missing paystackTxId in payment data.",
+          "Missing paystackTxId or paystackTxRef in payment data.",
         );
       }
 
@@ -310,7 +350,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       }
 
       const response = await this.paystack.refund.create({
-        transaction: String(paystackTxId),
+        transaction: String(paystackTxId || paystackTxRef),
         amount: paystackAmount,
       });
 
@@ -325,15 +365,16 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       return {
         data: {
           ...input.data,
-          paystackTxData: response.data,
+          paystackRefundData: response.data,
         },
       };
     } catch (error: any) {
       if (this.debug) console.error("PS_P_Debug: RefundPayment: Error", error);
+      const errMsg = error?.response?.data?.message || error?.message || error?.toString() || "Unknown error";
       throw new MedusaError(
         MedusaError.Types.UNEXPECTED_STATE,
         "Failed to refund payment",
-        error?.toString() ?? "Unknown error",
+        errMsg,
       );
     }
   }
@@ -343,14 +384,16 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   ): Promise<GetPaymentStatusOutput> {
     if (this.debug) console.info("PS_P_Debug: GetPaymentStatus", JSON.stringify(input, null, 2));
 
-    const { paystackTxId } = input.data as AuthorizedPaystackPaymentProviderSessionData;
+    const { paystackTxId, paystackTxRef } = input.data as AuthorizedPaystackPaymentProviderSessionData;
 
-    if (!paystackTxId) {
+    if (!paystackTxId && !paystackTxRef) {
       return { status: PaymentSessionStatus.PENDING };
     }
 
     try {
-      const response = await this.paystack.transaction.get({ id: paystackTxId });
+      const response = paystackTxId
+        ? await this.paystack.transaction.get({ id: paystackTxId })
+        : await this.paystack.transaction.verify({ reference: paystackTxRef });
 
       if (!response.status) {
         return { status: PaymentSessionStatus.ERROR };
@@ -361,6 +404,11 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
           return { status: PaymentSessionStatus.CAPTURED }; 
         case "failed":
           return { status: PaymentSessionStatus.ERROR };
+        case "abandoned":
+          return { status: PaymentSessionStatus.CANCELED };
+        case "pay_offline":
+        case "pending":
+          return { status: PaymentSessionStatus.PENDING_AUTHORIZATION };
         default:
           return { status: PaymentSessionStatus.PENDING };
       }
@@ -370,57 +418,88 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     }
   }
 
-  async getWebhookActionAndData({
-    data: { event, data },
-    rawData,
-    headers,
-  }: {
-    data: {
-      event: string;
-      data: {
-        amount: number;
-        currency?: string;
-        reference: string;
-        metadata?: Record<string, unknown>;
-      };
-    };
-    rawData: string | Buffer;
-    headers: Record<string, unknown>;
-  }): Promise<WebhookActionResult> {
-    if (this.debug) console.info("PS_P_Debug: Webhook", JSON.stringify({ event, headers }, null, 2));
+  async getWebhookActionAndData(
+    payload: ProviderWebhookPayload["payload"]
+  ): Promise<WebhookActionResult> {
+    if (this.debug) console.info("PS_P_Debug: Webhook", JSON.stringify(payload, null, 2));
 
+    const { data: rawPayloadData, rawData, headers } = (payload || {}) as any;
     const webhookSecretKey = this.configuration.secret_key;
+
+    if (!webhookSecretKey) {
+      return { action: PaymentActions.NOT_SUPPORTED };
+    }
+
+    const signature = (headers?.["x-paystack-signature"] || headers?.["X-Paystack-Signature"]) as string;
+    if (!signature) {
+      if (this.debug) console.error("PS_P_Debug: Webhook missing signature header");
+      return { action: PaymentActions.NOT_SUPPORTED };
+    }
+
+    const rawPayload = typeof rawData === "string" || Buffer.isBuffer(rawData)
+      ? rawData
+      : JSON.stringify(rawPayloadData || {});
 
     const hash = crypto
       .createHmac("sha512", webhookSecretKey)
-      .update(rawData)
+      .update(rawPayload)
       .digest("hex");
 
-    if (hash !== headers["x-paystack-signature"]) {
+    let isSignatureValid = false;
+    try {
+      const hashBuf = Buffer.from(hash, "hex");
+      const sigBuf = Buffer.from(signature, "hex");
+      isSignatureValid = hashBuf.length === sigBuf.length && crypto.timingSafeEqual(hashBuf, sigBuf);
+    } catch {
+      isSignatureValid = hash === signature;
+    }
+
+    if (!isSignatureValid) {
       if (this.debug) console.error("PS_P_Debug: Webhook signature mismatch");
       return {
         action: PaymentActions.NOT_SUPPORTED,
       };
     }
 
-    if (event !== "charge.success") {
+    const body = (rawPayloadData || {}) as any;
+    const event = body.event;
+    const eventData = body.data || {};
+
+    const sessionId = (eventData.metadata?.session_id as string) || undefined;
+    if (!sessionId) {
+      if (this.debug) console.warn("PS_P_Debug: Webhook event missing session_id in metadata");
       return {
         action: PaymentActions.NOT_SUPPORTED,
       };
     }
 
-    const sessionId = data.metadata?.session_id as string | undefined;
-    const currency = data.currency || "NGN";
-    const medusaAmount = getMedusaAmount(Number(data.amount), currency);
+    const currency = eventData.currency || "NGN";
+    const medusaAmount = getMedusaAmount(Number(eventData.amount || 0), currency);
 
-    console.info(`[Paystack Webhook] Received ${event} for reference: ${data.reference} (Session: ${sessionId})`);
+    if (event === "charge.success") {
+      console.info(`[Paystack Webhook] Received charge.success for reference: ${eventData.reference} (Session: ${sessionId})`);
+      return {
+        action: PaymentActions.SUCCESSFUL,
+        data: {
+          session_id: sessionId,
+          amount: medusaAmount,
+        },
+      };
+    }
+
+    if (event === "charge.failed") {
+      console.info(`[Paystack Webhook] Received charge.failed for reference: ${eventData.reference} (Session: ${sessionId})`);
+      return {
+        action: PaymentActions.FAILED,
+        data: {
+          session_id: sessionId,
+          amount: medusaAmount,
+        },
+      };
+    }
 
     return {
-      action: PaymentActions.SUCCESSFUL,
-      data: {
-        session_id: sessionId || "",
-        amount: medusaAmount,
-      },
+      action: PaymentActions.NOT_SUPPORTED,
     };
   }
 

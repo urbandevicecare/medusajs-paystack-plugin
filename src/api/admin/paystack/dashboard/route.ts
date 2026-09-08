@@ -74,8 +74,8 @@ export async function GET(
     }
 
     payments.forEach((payment: any) => {
-      const amount = Number(payment.amount) / 100; // Convert to decimal for graphs
-      totalRevenue += Number(payment.amount);
+      const amount = Number(payment.amount); // Medusa v2 payment amount is already in standard currency units
+      totalRevenue += amount;
 
       const date = new Date(payment.created_at);
       
@@ -114,7 +114,7 @@ export async function GET(
 
     // Attempt to fetch live Paystack account balance if secret key is present
     let balance = null;
-    const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY;
+    const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
     if (secretKey) {
       try {
         const client = new PaystackClient(secretKey);

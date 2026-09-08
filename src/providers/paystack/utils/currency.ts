@@ -16,8 +16,9 @@ export const ZERO_DECIMAL_CURRENCIES = [
   "XPF",
 ];
 
-export function getPaystackAmount(amount: number, currency: string): number {
-  if (ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase())) {
+export function getPaystackAmount(amount: number, currency: string = "NGN"): number {
+  const curr = (currency || "NGN").toUpperCase();
+  if (ZERO_DECIMAL_CURRENCIES.includes(curr)) {
     return Math.round(amount);
   }
   // Convert standard currencies to their lowest subunit (e.g. KES 100 -> 10000 cents)
@@ -26,8 +27,9 @@ export function getPaystackAmount(amount: number, currency: string): number {
   return Math.round(amount * 100);
 }
 
-export function getMedusaAmount(paystackAmount: number, currency: string): number {
-  if (ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase())) {
+export function getMedusaAmount(paystackAmount: number, currency: string = "NGN"): number {
+  const curr = (currency || "NGN").toUpperCase();
+  if (ZERO_DECIMAL_CURRENCIES.includes(curr)) {
     return paystackAmount;
   }
   // Convert from subunit back to standard Medusa amount

@@ -41,13 +41,13 @@ const PaystackDashboard = () => {
             <div className="flex gap-4">
               <div className="p-4 border rounded-lg flex-1">
                 <Text size="small" className="text-ui-fg-subtle">Total Medusa Revenue</Text>
-                <Heading level="h2">{data?.totalRevenue ? (data.totalRevenue / 100).toFixed(2) : 0}</Heading>
+                <Heading level="h2">{data?.totalRevenue != null ? Number(data.totalRevenue).toFixed(2) : "0.00"}</Heading>
               </div>
-              {data?.balance && (
+              {data?.balance && data.balance.length > 0 && (
                 <div className="p-4 border rounded-lg flex-1">
                   <Text size="small" className="text-ui-fg-subtle">Live Paystack Balance</Text>
                   <Heading level="h2">
-                    {data.balance[0]?.currency} {data.balance[0]?.balance ? (data.balance[0].balance / 100).toFixed(2) : 0}
+                    {data.balance[0]?.currency} {data.balance[0]?.balance != null ? (Number(data.balance[0].balance) / 100).toFixed(2) : "0.00"}
                   </Heading>
                 </div>
               )}
@@ -113,7 +113,7 @@ const PaystackDashboard = () => {
               {data.payments.slice(0, 10).map((payment: any) => (
                 <Table.Row key={payment.id}>
                   <Table.Cell>#{payment.payment_collection?.order?.display_id || "N/A"}</Table.Cell>
-                  <Table.Cell>{(payment.amount / 100).toFixed(2)} {payment.currency_code?.toUpperCase()}</Table.Cell>
+                  <Table.Cell>{Number(payment.amount).toFixed(2)} {payment.currency_code?.toUpperCase()}</Table.Cell>
                   <Table.Cell>{new Date(payment.created_at).toLocaleDateString()}</Table.Cell>
                 </Table.Row>
               ))}

@@ -1,4 +1,5 @@
 import { SubscriberArgs, type SubscriberConfig } from "@medusajs/framework"
+import { Modules } from "@medusajs/framework/utils"
 import crypto from "crypto"
 import { getPaymentRequiredTemplate } from "../templates/payment-link"
 
@@ -20,6 +21,8 @@ export default async function paymentLinkSubscriber({
       "email",
       "currency_code",
       "total",
+      "payment_collections.captured_amount",
+      "payment_collections.amount",
       "payment_collections.payments.amount",
       "payment_collections.payments.captured_at",
       "payment_collections.payments.canceled_at",
@@ -40,13 +43,15 @@ export default async function paymentLinkSubscriber({
 
   const order = orders[0]
 
-  // Calculate remaining balance
+  // Calculate remaining balance: only payments that have actually been captured count as paid
   let capturedAmountRaw = 0;
   if (order.payment_collections) {
     for (const pc of order.payment_collections as any[]) {
-      if (pc.payments) {
+      if (pc.captured_amount != null) {
+        capturedAmountRaw += Number(pc.captured_amount);
+      } else if (pc.payments) {
         capturedAmountRaw += pc.payments.reduce((acc: number, p: any) => {
-          const isPaid = p.captured_at || !p.canceled_at;
+          const isPaid = Boolean(p.captured_at) && !p.canceled_at;
           return acc + (isPaid ? Number(p.amount) : 0);
         }, 0);
       }
@@ -61,9 +66,14 @@ export default async function paymentLinkSubscriber({
   }
 
   // Generate HMAC hash
-  const secretKey = process.env.MEDUSA_PUBLISHABLE_KEY;
+  const secretKey = 
+    process.env.MEDUSA_PUBLISHABLE_KEY || 
+    process.env.MEDUSA_PUBLISHABLE_API_KEY || 
+    process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 
+    process.env.PAYSTACK_SECRET_KEY;
+
   if (!secretKey) {
-    logger.error("[Paystack-Plugin] Missing MEDUSA_PUBLISHABLE_KEY for HMAC generation")
+    logger.error("[Paystack-Plugin] Missing MEDUSA_PUBLISHABLE_KEY or PAYSTACK_SECRET_KEY for HMAC generation")
     return
   }
 
@@ -74,7 +84,18 @@ export default async function paymentLinkSubscriber({
   const storefrontUrl = process.env.STOREFRONT_URL || "http://localhost:5173"
   const paymentLink = `${storefrontUrl}/pay/${hash}/${order.id}`
   
-  const notificationService = container.resolve("notification")
+  let notificationService: any = null;
+  try {
+    notificationService = container.resolve(Modules.NOTIFICATION);
+  } catch {
+    try {
+      notificationService = container.resolve("notification");
+    } catch {
+      logger.warn("[Paystack-Plugin] Notification module not found in container, skipping payment link notification");
+      return;
+    }
+  }
+
   const templatePayload = getPaymentRequiredTemplate(order, paymentLink, remainingBalanceRaw)
   const notificationSubject = `Action Required: Payment Pending for Order #${order.display_id || order.id}`
   

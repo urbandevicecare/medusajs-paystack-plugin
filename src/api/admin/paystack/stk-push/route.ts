@@ -46,7 +46,7 @@ export async function POST(
     return res.status(404).json({ message: "Order not found" });
   }
 
-  const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY;
+  const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
   if (!secretKey) {
     return res.status(500).json({ message: "PAYSTACK_SECRET_KEY or PAYSTACK_TEST_SECRET_KEY must be set in environment for STK push" });
   }
@@ -193,7 +193,7 @@ export async function POST(
     });
   } catch (error: any) {
     console.error("Storefront STK Push Error:", error.response?.data || error);
-    res.status(500).json({ 
+    res.status(error.response?.status || 500).json({ 
       message: error.response?.data?.message || error.message || "Failed to initiate STK Push" 
     });
   }

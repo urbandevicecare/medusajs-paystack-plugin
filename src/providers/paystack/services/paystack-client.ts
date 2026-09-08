@@ -43,6 +43,7 @@ export default class PaystackClient {
   constructor(secretKey: string) {
     this.axios = axios.create({
       baseURL: "https://api.paystack.co",
+      timeout: 30000,
       headers: {
         Authorization: `Bearer ${secretKey}`,
         "Content-Type": "application/json",
