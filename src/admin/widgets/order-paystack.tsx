@@ -6,45 +6,102 @@ import { useState } from "react"
 import { sdk } from "../lib/client"
 
 const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
-  const [phone, setPhone] = useState("")
+  const initialPhone = 
+    (data as any)?.shipping_address?.phone || 
+    (data as any)?.billing_address?.phone || 
+    (data as any)?.customer?.phone || 
+    "";
+
+  const [phone, setPhone] = useState(initialPhone)
+  const [amount, setAmount] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   const handleStkPush = async () => {
     if (!phone) return
     setIsLoading(true)
+    setFeedback(null)
+
     try {
-      // Call the admin API route
-      await sdk.client.fetch(`/admin/paystack/stk-push`, { 
+      const payload: { order_id: string; phone: string; amount?: number } = {
+        order_id: data.id,
+        phone,
+      }
+
+      if (amount && Number(amount) > 0) {
+        payload.amount = Number(amount)
+      }
+
+      const res: any = await sdk.client.fetch(`/admin/paystack/stk-push`, { 
         method: "POST", 
-        body: { order_id: data.id, phone } 
+        body: payload,
       })
-      alert(`STK Push initiated successfully to phone ${phone}`)
-      setPhone("")
+
+      const displayMsg = res?.message || `STK push initiated to ${phone}`
+      setFeedback({ type: "success", message: displayMsg })
     } catch (e: any) {
-      console.error(e)
-      alert(e.message || "Failed to initiate STK Push")
+      console.error("STK Push error:", e)
+      const errorMsg = e?.message || e?.response?.data?.message || "Failed to initiate STK Push"
+      setFeedback({ type: "error", message: errorMsg })
     } finally {
       setIsLoading(false)
     }
   }
 
+  const currencyCode = (data as any)?.currency_code?.toUpperCase() || "KES"
+
   return (
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
-        <Heading level="h2">Paystack - STK Push</Heading>
+        <div>
+          <Heading level="h2">Paystack - STK Push</Heading>
+          <Text size="small" className="text-ui-fg-subtle">
+            Prompt customer for payment via M-Pesa / Mobile Money ({currencyCode}).
+          </Text>
+        </div>
       </div>
       <div className="flex flex-col gap-y-4 px-6 py-4">
-        <Text size="small" className="text-ui-fg-subtle">
-          Initiate a manual STK Push to collect payment via M-Pesa for this order.
-        </Text>
-        <div className="flex items-center gap-2">
-          <Input 
-            placeholder="Phone Number (e.g. 2547...)" 
-            value={phone} 
-            onChange={(e) => setPhone(e.target.value)} 
-          />
-          <Button variant="secondary" size="small" onClick={handleStkPush} isLoading={isLoading} disabled={!phone}>
-            Send STK Push
+        {feedback && (
+          <div 
+            className={`p-3 rounded-md text-sm ${
+              feedback.type === "success" 
+                ? "bg-ui-bg-subtle-pressed text-ui-fg-interactive border border-ui-border-interactive" 
+                : "bg-ui-bg-error-subtle text-ui-fg-error border border-ui-border-error"
+            }`}
+          >
+            {feedback.message}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <Text size="xsmall" className="text-ui-fg-subtle mb-1">Phone Number</Text>
+            <Input 
+              placeholder="e.g. 0712345678 or +254..." 
+              value={phone} 
+              onChange={(e) => setPhone(e.target.value)} 
+            />
+          </div>
+          <div>
+            <Text size="xsmall" className="text-ui-fg-subtle mb-1">Amount ({currencyCode}, leave blank for full)</Text>
+            <Input 
+              type="number"
+              placeholder={`Order Total: ${(data as any)?.total || 0}`} 
+              value={amount} 
+              onChange={(e) => setAmount(e.target.value)} 
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button 
+            variant="primary" 
+            size="small" 
+            onClick={handleStkPush} 
+            isLoading={isLoading} 
+            disabled={!phone || isLoading}
+          >
+            Send STK Push Prompt
           </Button>
         </div>
       </div>

@@ -13,18 +13,16 @@ export const ZERO_DECIMAL_CURRENCIES = [
   "VND",
   "VUV",
   "XAF",
-  "XOF",
   "XPF",
 ];
 
 export function getPaystackAmount(amount: number, currency: string): number {
   if (ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase())) {
-    return amount; // Send as is
+    return Math.round(amount);
   }
   // Convert standard currencies to their lowest subunit (e.g. KES 100 -> 10000 cents)
-  // Medusa v2 stores prices as true amounts (e.g. 100.50), not in cents!
-  // Wait, in Medusa v2, prices are stored as DB amounts (e.g. 100.50). 
-  // Paystack expects subunits (10050). So we multiply by 100 for non-zero decimal currencies.
+  // In Medusa v2, prices and totals are stored and represented in standard currency units (e.g. 100.50).
+  // Paystack expects smallest subunit (e.g. kobo, pesewas, cents, and XOF*100).
   return Math.round(amount * 100);
 }
 
@@ -32,6 +30,31 @@ export function getMedusaAmount(paystackAmount: number, currency: string): numbe
   if (ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase())) {
     return paystackAmount;
   }
-  // Convert from subunit back to true amount
+  // Convert from subunit back to standard Medusa amount
   return paystackAmount / 100;
+}
+
+/**
+ * Normalizes phone numbers for Mobile Money STK Push providers.
+ * For Kenya M-Pesa (KES), Paystack recommends numbers in international format e.g. +254710000000.
+ */
+export function formatMobileMoneyPhone(phone: string, currency: string): string {
+  if (!phone) return "";
+  const cleaned = phone.replace(/[\s\-\(\)]/g, "");
+  const curr = (currency || "").toUpperCase();
+
+  if (curr === "KES") {
+    if (cleaned.startsWith("+254")) return cleaned;
+    if (cleaned.startsWith("254")) return `+${cleaned}`;
+    if (cleaned.startsWith("0")) return `+254${cleaned.slice(1)}`;
+    return `+254${cleaned}`;
+  }
+
+  if (curr === "GHS") {
+    if (cleaned.startsWith("+233")) return cleaned;
+    if (cleaned.startsWith("233")) return `+${cleaned}`;
+    return cleaned;
+  }
+
+  return cleaned;
 }

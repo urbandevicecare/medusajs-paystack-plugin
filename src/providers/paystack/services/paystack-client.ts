@@ -25,10 +25,16 @@ export interface GetTransactionOptions {
 export interface ChargePaymentOptions {
   email: string;
   amount: number;
-  mobile_money: {
+  currency?: string;
+  reference?: string;
+  metadata?: Record<string, unknown>;
+  mobile_money?: {
     phone: string;
-    provider: string; // e.g. "mpesa"
+    provider: string; // e.g. "mpesa", "mtn"
   };
+  bank?: Record<string, unknown>;
+  authorization_code?: string;
+  pin?: string;
 }
 
 export default class PaystackClient {
@@ -62,6 +68,10 @@ export default class PaystackClient {
   public charge = {
     create: async (data: ChargePaymentOptions) => {
       const response = await this.axios.post("/charge", data);
+      return response.data;
+    },
+    checkPending: async (reference: string) => {
+      const response = await this.axios.get(`/charge/${reference}`);
       return response.data;
     },
   };

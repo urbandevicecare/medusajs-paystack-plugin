@@ -102,8 +102,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         // Skip calling Paystack's initialize endpoint if this is an STK Push.
         // The STK Push route handles the actual Paystack charge creation.
         return {
-          id: data.paystackTxRef as string || `stk_${Date.now()}`,
-          status: PaymentSessionStatus.PENDING,
+          id: (data.paystackTxRef as string) || `stk_${Date.now()}`,
+          status: PaymentSessionStatus.PENDING_AUTHORIZATION,
           data: {
             ...data,
             paystackTxRef: data.paystackTxRef as string,
@@ -218,12 +218,18 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         case "failed":
           return {
             status: PaymentSessionStatus.ERROR,
-            data: { ...input.data, paystackTxId: response.data.id, paystackTxData: response.data },
+            data: { ...input.data, paystackTxId: response.data?.id, paystackTxData: response.data },
+          };
+        case "pay_offline":
+        case "pending":
+          return {
+            status: PaymentSessionStatus.PENDING_AUTHORIZATION,
+            data: { ...input.data, paystackTxId: response.data?.id, paystackTxData: response.data },
           };
         default:
           return {
             status: PaymentSessionStatus.PENDING,
-            data: { ...input.data, paystackTxId: response.data.id, paystackTxData: response.data },
+            data: { ...input.data, paystackTxId: response.data?.id, paystackTxData: response.data },
           };
       }
     } catch (error: any) {

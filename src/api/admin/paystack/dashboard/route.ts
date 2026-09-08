@@ -21,7 +21,7 @@ export async function GET(
         "payment_collection.order.display_id"
       ],
       filters: { 
-        provider_id: "paystack"
+        provider_id: { $like: "%paystack%" }
       }
     });
 
@@ -114,7 +114,7 @@ export async function GET(
 
     // Attempt to fetch live Paystack account balance if secret key is present
     let balance = null;
-    const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY;
     if (secretKey) {
       try {
         const client = new PaystackClient(secretKey);
