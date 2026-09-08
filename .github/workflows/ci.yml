@@ -41,21 +41,30 @@ jobs:
         run: |
           git restore .
           npm version patch -m "chore: bump version to %s [skip ci]"
-          echo "VERSION=$(node -p 'require(\"./package.json\").version')" >> $GITHUB_ENV
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$PKG_VERSION" >> $GITHUB_ENV
 
-      # 4. Push the new version and tag back to GitHub
+      # 5. Push the new version and tag back to GitHub
       - name: Push changes
         run: git push --follow-tags
 
-      # 5. Publish to npm using your secret token
+      # 6. Publish to npm using your secret token
       - name: Publish to npm
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # 6. Create GitHub Release
+      # 7. Package tarball asset
+      - name: Package tarball asset
+        run: npm pack
+
+      # 8. Create GitHub Release with assets
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}
+          tag_name: v${{ steps.bump_version.outputs.VERSION }}
+          name: v${{ steps.bump_version.outputs.VERSION }}
           generate_release_notes: true
+          files: |
+            *.tgz
