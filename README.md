@@ -75,6 +75,14 @@ https://your-medusa-backend.com/hooks/payment/paystack
 
 Incoming `charge.success` events will automatically capture the payment and mark the order as paid.
 
+## STK Push APIs
+
+- **Storefront (`POST /store/paystack/stk-push`)**: Public endpoint used by Next.js storefronts and custom payment link pages to trigger M-Pesa prompts for customers.
+  ```json
+  { "order_id": "order_01...", "phone": "+254712345678", "amount": 500 }
+  ```
+- **Admin (`POST /admin/paystack/stk-push`)**: Authenticated endpoint used by the Admin UI Order Widget for manual payments.
+
 ## Development & Building
 
 ```bash
