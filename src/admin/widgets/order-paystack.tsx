@@ -3,7 +3,15 @@ import { DetailWidgetProps, AdminOrder } from "@medusajs/framework/types"
 import { Container, Heading, Text, Button, Input } from "@medusajs/ui"
 import { useState } from "react"
 
-import { sdk } from "../lib/client"
+import Medusa from "@medusajs/js-sdk"
+
+const sdk = new Medusa({
+  baseUrl: "/",
+  debug: false,
+  auth: {
+    type: "session",
+  },
+})
 
 const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
   const initialPhone = 

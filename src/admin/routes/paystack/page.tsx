@@ -2,7 +2,15 @@ import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Text, Table, Select } from "@medusajs/ui"
 import { CreditCard } from "@medusajs/icons"
 import { useState, useEffect } from "react"
-import { sdk } from "../../lib/client"
+import Medusa from "@medusajs/js-sdk"
+
+const sdk = new Medusa({
+  baseUrl: "/",
+  debug: false,
+  auth: {
+    type: "session",
+  },
+})
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
 const PaystackDashboard = () => {
