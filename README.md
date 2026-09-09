@@ -6,6 +6,10 @@
 
 A multi-currency **Paystack** payment plugin designed for **Medusa v2**. Supports standard checkout redirects, inline popup checkout, direct M-Pesa / Mobile Money STK Push, an Admin Order widget, an analytics dashboard, and automated background transaction sync.
 
+> 📖 **Documentation & Integration Links**:
+> - **[Comprehensive Feature & Integration Guide (FEATURES.md)](./FEATURES.md)**: Deep dive into all backend architecture, admin widgets, and storefront implementation tutorials (Next.js & React).
+> - **[Release Changelog (CHANGELOG.md)](./CHANGELOG.md)**: Detailed version-by-version change history and release notes.
+
 ---
 
 ## Features
@@ -18,6 +22,8 @@ A multi-currency **Paystack** payment plugin designed for **Medusa v2**. Support
 - **Automated Payment Links**: Background subscriber sends SMS & email reminders with secure HMAC links for unpaid orders.
 - **Background Sync**: 15-minute cron job to verify and capture in-flight payments.
 - **Multi-Currency & Webhooks**: Automatic subunit normalization (KES, NGN, GHS, USD, etc.) and timing-safe HMAC SHA-512 webhook verification.
+
+👉 *For detailed feature breakdowns and architecture diagrams, see [FEATURES.md](./FEATURES.md).*
 
 ---
 
@@ -86,141 +92,22 @@ Incoming `charge.success` events automatically capture payments and update the M
 
 ---
 
-## Storefront & Frontend Integration Guide
+## Frontend & Storefront Integration
 
-The plugin exposes multiple ways for your storefront (e.g. Next.js, Remix, Gatsby) to collect payments:
+The plugin exposes multiple integration paths for storefronts (Next.js, Remix, Gatsby):
 
-### 1. Standard Checkout (Hosted Redirect & Popup Modal)
+1. **Standard Checkout (Hosted Redirect & Popup Modal)**:
+   - Provider ID: `pp_paystack_paystack`
+   - Redirect to `session.data.paystackTxAuthorizationUrl` or mount popup using `session.data.paystackTxAccessCode`.
+2. **Direct Mobile Money STK Push (`POST /store/paystack/stk-push`)**:
+   - Accepts `{ "order_id": "...", "phone": "07...", "amount": 500 }`.
+   - Automatic phone sanitization to `+254...`, 45-second idempotency guard, and overpayment prevention.
+3. **Payment Link Landing Page (`/pay/[hash]/[orderId]`)**:
+   - Tamper-proof HMAC links sent via automated SMS/Email for offline/deferred balances.
+4. **Payment Polling**:
+   - Poll `sdk.store.order.retrieve` while waiting for customer PIN entry.
 
-When a customer selects Paystack at checkout, initialize a payment session with provider `pp_paystack_paystack`:
-
-```typescript
-import Medusa from "@medusajs/js-sdk"
-
-const sdk = new Medusa({
-  baseUrl: process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL!,
-  publishableApiKey: process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY!,
-})
-
-// Initialize payment session on cart
-const { cart } = await sdk.store.payment.initiatePaymentSession(cart, {
-  provider_id: "pp_paystack_paystack",
-})
-
-const paystackSession = cart.payment_collection?.payment_sessions?.find(
-  (s) => s.provider_id === "pp_paystack_paystack"
-)
-```
-
-The payment session returns:
-- `paystackTxAuthorizationUrl`: Hosted Paystack checkout URL.
-- `paystackTxAccessCode`: Access code for Paystack inline popup modal.
-- `paystackTxRef`: Unique transaction reference.
-
-#### Option A: Hosted Redirect
-Redirect the customer directly to Paystack:
-```typescript
-if (paystackSession?.data?.paystackTxAuthorizationUrl) {
-  window.location.href = paystackSession.data.paystackTxAuthorizationUrl as string
-}
-```
-
-#### Option B: Inline Popup Modal
-Use `@paystack/inline-js` to keep the user on your site:
-```bash
-npm install @paystack/inline-js
-```
-```typescript
-import PaystackPop from "@paystack/inline-js"
-
-const popup = new PaystackPop()
-popup.resumeTransaction(paystackSession.data.paystackTxAccessCode as string)
-```
-
----
-
-### 2. Direct Mobile Money STK Push (`POST /store/paystack/stk-push`)
-
-Trigger an instant SIM Toolkit prompt (e.g. M-Pesa in Kenya, MTN in Ghana) directly to the customer's phone without redirecting to a payment gateway.
-
-- **Endpoint**: `POST /store/paystack/stk-push`
-- **Header**: `x-publishable-api-key: <MEDUSA_PUBLISHABLE_KEY>`
-- **Body**:
-  ```json
-  {
-    "order_id": "order_01J...",
-    "phone": "0712345678",
-    "amount": 1500
-  }
-  ```
-  *(Note: `amount` is optional and defaults to the full unpaid balance. Phone is automatically sanitized to international format).*
-
-#### Features:
-- **Phone Sanitization**: Automatically handles `07...`, `01...`, or `+254...`.
-- **Overpayment Guard**: Blocks amounts exceeding the remaining balance.
-- **Double-Tap Protection**: Enforces 45-second idempotency to prevent duplicate mobile prompts.
-
-#### Frontend Example:
-```typescript
-const triggerStkPush = async (orderId: string, phone: string, amount?: number) => {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL}/store/paystack/stk-push`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-publishable-api-key": process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY!,
-    },
-    body: JSON.stringify({
-      order_id: orderId,
-      phone,
-      ...(amount ? { amount } : {}),
-    }),
-  })
-
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message)
-  return data // { success: true, message: "...", reference: "..." }
-}
-```
-
----
-
-### 3. Payment Link Landing Page (`/pay/[hash]/[orderId]`)
-
-When orders are created with an unpaid balance, the plugin subscriber sends SMS & Email notifications containing a payment link:
-```text
-${STOREFRONT_URL}/pay/${hash}/${order.id}
-```
-where `hash = sha256(order.id, MEDUSA_PUBLISHABLE_KEY)`.
-
-In your storefront:
-1. Create a page at `/pay/[hash]/[orderId]`.
-2. Fetch the order details using `sdk.store.order.retrieve(orderId)`.
-3. Display the order total and remaining balance.
-4. Render a phone input and "Pay via M-Pesa" button calling `POST /store/paystack/stk-push`.
-
----
-
-### 4. Payment Verification & Polling
-
-Once the customer completes the prompt on their phone or finishes the popup checkout, Paystack sends a webhook to capture the payment.
-
-Your frontend can poll the order status:
-```typescript
-const pollOrderStatus = async (orderId: string, maxAttempts = 20): Promise<boolean> => {
-  for (let i = 0; i < maxAttempts; i++) {
-    const { order } = await sdk.store.order.retrieve(orderId, {
-      fields: "+payment_collections.status,+payment_collections.captured_amount",
-    })
-
-    if (order.payment_status === "captured") {
-      return true
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 3000)) // Wait 3s
-  }
-  return false
-}
-```
+👉 *For complete, copy-pasteable React and Next.js component implementations, see [Frontend & Storefront Guide in FEATURES.md](./FEATURES.md#4-frontend--storefront-features--integration).*
 
 ---
 
@@ -230,6 +117,8 @@ const pollOrderStatus = async (orderId: string, maxAttempts = 20): Promise<boole
 - **Paystack Analytics Dashboard**: Monitor gross volume, transactions, and live Paystack balance in the Medusa Admin sidebar.
 - **Admin STK Route**: `POST /admin/paystack/stk-push` (authenticated for staff).
 
+👉 *For admin configuration and UI details, see [Admin Extensions in FEATURES.md](./FEATURES.md#3-admin-features--extensions).*
+
 ---
 
 ## Development & Building
@@ -238,6 +127,21 @@ const pollOrderStatus = async (orderId: string, maxAttempts = 20): Promise<boole
 yarn build   # Builds server code and admin extensions into .medusa/server
 yarn dev     # Development watch mode
 ```
+
+---
+
+## Changelog
+
+Detailed release notes and migration guides are maintained in [CHANGELOG.md](./CHANGELOG.md).
+
+- **v1.0.7**: Dedicated `FEATURES.md` and `CHANGELOG.md` documentation, automated GitHub Release changelog population.
+- **v1.0.6**: Storefront STK Push route restoration, comprehensive frontend docs.
+- **v1.0.5**: Admin bundler stability fix (recharts dynamic isolation), guest checkout session safety.
+- **v1.0.4**: Multi-currency mobile money expansion (KES M-Pesa, GHS/XOF/RWF MTN), phone sanitization.
+- **v1.0.3**: Automated payment link subscriber (`order.placed`) with HMAC-SHA256 signing and SMS/Email templates.
+- **v1.0.2**: Medusa Admin order details STK push widget with 45s idempotency and overpayment protections.
+- **v1.0.1**: Timing-safe HMAC-SHA512 webhook verification, 15-minute background transaction sync cron.
+- **v1.0.0**: Initial Medusa v2 Paystack Payment Provider release.
 
 ---
 

@@ -59,12 +59,31 @@ jobs:
       - name: Package tarball asset
         run: npm pack
 
-      # 8. Create GitHub Release with assets
+      # 8. Extract Release Notes from CHANGELOG.md
+      - name: Extract Release Notes
+        run: |
+          node -e "
+            const fs = require('fs');
+            const version = process.env.VERSION || '';
+            const changelog = fs.existsSync('CHANGELOG.md') ? fs.readFileSync('CHANGELOG.md', 'utf8') : '';
+            const escapedVersion = version.replace(/\./g, '\\\.');
+            const regex = new RegExp('##\\\\s*\\\\[v?' + escapedVersion + '\\\\][\\\\s\\\\S]*?(?=(?:##\\\\s*\\\\[)|$)', 'i');
+            const match = changelog.match(regex);
+            let notes = match ? match[0].trim().replace(/\s*---\s*$/, '') : '';
+            if (!notes) {
+              const firstSection = changelog.match(/##\s*\[v?[\d\.]+\][\s\S]*?(?=(?:##\s*\[)|$)/i);
+              notes = firstSection ? firstSection[0].trim().replace(/\s*---\s*$/, '') : 'Release v' + version;
+            }
+            fs.writeFileSync('RELEASE_NOTES.md', notes);
+          "
+
+      # 9. Create GitHub Release with assets
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump_version.outputs.VERSION }}
           name: v${{ steps.bump_version.outputs.VERSION }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: false
           files: |
             *.tgz
