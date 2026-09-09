@@ -134,6 +134,7 @@ yarn dev     # Development watch mode
 
 Detailed release notes and migration guides are maintained in [CHANGELOG.md](./CHANGELOG.md).
 
+- **v1.0.8**: Rich, professionally styled HTML email and SMS templates with itemized line items, full financial breakdown, delivery destination, and mobile CTA button.
 - **v1.0.7**: Dedicated `FEATURES.md` and `CHANGELOG.md` documentation, automated GitHub Release changelog population.
 - **v1.0.6**: Storefront STK Push route restoration, comprehensive frontend docs.
 - **v1.0.5**: Admin bundler stability fix (recharts dynamic isolation), guest checkout session safety.

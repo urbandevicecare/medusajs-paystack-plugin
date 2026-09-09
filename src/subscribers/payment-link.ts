@@ -12,21 +12,46 @@ export default async function paymentLinkSubscriber({
   
   logger.info(`[Paystack-Plugin] Checking order.placed event for unpaid balances (Order: ${data.id})`)
 
-  // Retrieve full order data
+  // Retrieve full order data with all item, address, and pricing details
   const { data: orders } = await query.graph({
     entity: "order",
     fields: [
       "id",
       "display_id",
       "email",
+      "created_at",
       "currency_code",
       "total",
+      "subtotal",
+      "shipping_total",
+      "discount_total",
+      "tax_total",
+      "customer.first_name",
+      "customer.last_name",
+      "customer.email",
+      "shipping_address.first_name",
+      "shipping_address.last_name",
+      "shipping_address.address_1",
+      "shipping_address.address_2",
+      "shipping_address.city",
+      "shipping_address.province",
+      "shipping_address.postal_code",
+      "shipping_address.country_code",
+      "shipping_address.phone",
+      "billing_address.first_name",
+      "billing_address.last_name",
+      "billing_address.phone",
+      "items.id",
+      "items.title",
+      "items.subtitle",
+      "items.thumbnail",
+      "items.quantity",
+      "items.unit_price",
       "payment_collections.captured_amount",
       "payment_collections.amount",
       "payment_collections.payments.amount",
       "payment_collections.payments.captured_at",
-      "payment_collections.payments.canceled_at",
-      "shipping_address.phone"
+      "payment_collections.payments.canceled_at"
     ],
     filters: {
       id: data.id,
@@ -132,7 +157,9 @@ export default async function paymentLinkSubscriber({
         },
         data: {
           order_id: order.id,
+          display_id: order.display_id,
           remaining_balance: remainingBalanceRaw,
+          total: order.total,
           currency_code: order.currency_code,
           payment_link: paymentLink,
           message: templatePayload.text

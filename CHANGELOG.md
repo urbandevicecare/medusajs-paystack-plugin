@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.8] - 2026-09-09
+
+### Added
+- **Rich, Professional Order Notifications**:
+  - **Itemized Order Table**: Notifications now include full line item details (product titles, variant subtitles, thumbnail images, quantities, unit prices, and line totals).
+  - **Comprehensive Financial Breakdown**: Complete accounting summary showing subtotal, shipping fees, discounts, taxes, total order amount, amount already paid, and prominent balance due.
+  - **Customer & Destination Details**: Displays recipient name and delivery destination address directly in the email.
+  - **Responsive HTML Card Template**: Mobile-optimized email layout with clean brand headers, status badges, prominent payment call-to-action button, direct link fallbacks, and support links.
+  - **High-Clarity SMS Formatting**: Compact, informative SMS template containing store name, customer name, order number, total, remaining balance, and secure payment link.
+
+---
+
 ## [v1.0.7] - 2026-09-09
 
 ### Added

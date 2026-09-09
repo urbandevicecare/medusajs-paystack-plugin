@@ -502,6 +502,9 @@ export async function pollPaymentStatus(
 
 > 👉 *For the full chronological changelog with breaking changes and migration notices, see [CHANGELOG.md](./CHANGELOG.md).*
 
+### [v1.0.8] - 2026-09-09
+- **Rich, Professional Notifications**: Enhanced email notifications with itemized products table, thumbnails, full price accounting breakdown (subtotal, shipping, discounts, taxes, paid amount, balance due), and destination addresses. Mobile-optimized responsive card design and concise SMS templates.
+
 ### [v1.0.7] - 2026-09-09
 - **Dedicated Feature & Integration Guide (`FEATURES.md`)**: Comprehensive documentation covering backend architecture, admin widgets, analytics dashboard, and frontend/storefront implementation tutorials.
 - **Dedicated Project Changelog (`CHANGELOG.md`)**: Standalone, detailed version-by-version release history tracking all features, fixes, and improvements.
