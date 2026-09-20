@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.0.9] - 2026-09-20
+
+### Fixed
+- **SMS Template Transparency**: Fixed an issue where generic SMS providers interpreted the `template` parameter string (`"paystack-payment-required"`) as the literal text message body. The SMS module now passes the full SMS content string directly into the template parameter, with an optional fallback to `PAYSTACK_SMS_TEMPLATE` environment variable for providers that strictly require named identifiers.
+- **Template Self-Containment Checked**: Verified all notification templates are strictly bundled internally within the plugin without polluting the global `apps/backend/src/utils/templates/`.
+
+---
+
 ## [v1.0.8] - 2026-09-09
 
 ### Added

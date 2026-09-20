@@ -130,7 +130,9 @@ export default async function paymentLinkSubscriber({
     try {
       await notificationService.createNotifications({
         to: phone,
-        template: "paystack-payment-required", // The template name passed to the provider
+        // Some SMS providers use the template field as the actual message body.
+        // We fallback to the raw text if PAYSTACK_SMS_TEMPLATE is not explicitly set.
+        template: process.env.PAYSTACK_SMS_TEMPLATE || templatePayload.text,
         channel: "sms",
         data: {
           message: templatePayload.text
