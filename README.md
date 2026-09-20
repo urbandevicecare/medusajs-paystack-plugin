@@ -18,7 +18,7 @@ A multi-currency **Paystack** payment plugin designed for **Medusa v2**. Support
 - **Flexible Frontend Checkout**: Supports hosted redirect, inline popup modal, and headless mobile money STK push.
 - **M-Pesa / Mobile Money STK Push**: Send instant PIN prompts directly to customer phones via storefront or admin.
 - **Admin Order Widget**: Integrated directly in order details (`order.details.after`) with phone prefill and partial payment support.
-- **Paystack Analytics Dashboard**: Dedicated page in the Medusa Admin sidebar with revenue metrics, charts, and live balance.
+- **Paystack Analytics Dashboard & Settings**: Dedicated page in the Medusa Admin sidebar with revenue metrics, charts, live balance, and dynamic settings to configure Secret Keys on-the-fly.
 - **Automated Payment Links**: Background subscriber sends SMS & email reminders with secure HMAC links for unpaid orders.
 - **Background Sync**: 15-minute cron job to verify and capture in-flight payments.
 - **Multi-Currency & Webhooks**: Automatic subunit normalization (KES, NGN, GHS, USD, etc.) and timing-safe HMAC SHA-512 webhook verification.
@@ -134,6 +134,7 @@ yarn dev     # Development watch mode
 
 Detailed release notes and migration guides are maintained in [CHANGELOG.md](./CHANGELOG.md).
 
+- **v1.1.1**: Added dynamic Admin Settings tab to configure Paystack Secret Key, Company Name, and Storefront URL, overriding `.env` files dynamically using store metadata. Fixed SMS transparency for generic plugins.
 - **v1.0.8**: Rich, professionally styled HTML email and SMS templates with itemized line items, full financial breakdown, delivery destination, and mobile CTA button.
 - **v1.0.7**: Dedicated `FEATURES.md` and `CHANGELOG.md` documentation, automated GitHub Release changelog population.
 - **v1.0.6**: Storefront STK Push route restoration, comprehensive frontend docs.

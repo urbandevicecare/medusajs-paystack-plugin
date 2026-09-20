@@ -185,18 +185,18 @@ Located at `src/admin/widgets/order-paystack.tsx`.
 - **Partial Amount Support**: Admins can enter a custom amount to collect partial installments, or leave blank to collect the full order total.
 - **Live Status Feedback**: Displays color-coded success and error alerts upon dispatch.
 
-### Paystack Analytics Dashboard
+### Paystack Analytics Dashboard & Settings Tab
 
 Located at `src/admin/routes/paystack/page.tsx`.
 
 - **Admin Sidebar Route**: Listed under **Paystack** with a credit card icon.
-- **Live Balance**: Displays live Paystack available balance and currency.
-- **Revenue Analytics**: Interactive Recharts bar charts showing volume broken down by:
-  - Daily
-  - Weekly
-  - Monthly
-  - Yearly
-- **Recent Transactions Table**: Shows the latest 10 captured Paystack payments with order number, amount, and date.
+- **Analytics View**:
+  - **Live Balance**: Displays live Paystack available balance and currency.
+  - **Revenue Analytics**: Interactive Recharts bar charts showing volume broken down by daily, weekly, monthly, and yearly.
+  - **Recent Transactions Table**: Shows the latest 10 captured Paystack payments.
+- **Settings View**:
+  - **Dynamic Configuration**: Form to set the `Paystack Secret Key`, `Company Name`, and `Storefront URL` directly from the dashboard.
+  - **Database Persistence**: Securely stores configurations into Medusa `Store` metadata to override local `.env` variables instantly without server restarts.
 
 ### Admin STK Push API Endpoint
 
