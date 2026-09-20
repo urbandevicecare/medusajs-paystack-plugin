@@ -55,9 +55,10 @@ function formatAmount(amount: number | undefined | null, currency: string): stri
 export function getPaymentRequiredTemplate(
   orderData: OrderData,
   paymentLink: string,
-  remainingBalance: number
+  remainingBalance: number,
+  companyName?: string
 ) {
-  const STORE_NAME = process.env.STORE_NAME || "Urban Device Care";
+  const STORE_NAME = companyName || process.env.STORE_NAME || "Urban Device Care";
   const STORE_TAGLINE = process.env.STORE_TAGLINE || "Quality & Reliability Guaranteed";
   const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "support@urbandevicecare.co.uk";
 

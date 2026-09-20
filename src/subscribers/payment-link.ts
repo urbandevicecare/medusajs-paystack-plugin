@@ -106,7 +106,17 @@ export default async function paymentLinkSubscriber({
     .update(order.id)
     .digest('hex');
 
-  const storefrontUrl = process.env.STOREFRONT_URL || "http://localhost:5173"
+  // Fetch Store Settings
+  const { data: stores } = await query.graph({
+    entity: "store",
+    fields: ["metadata"]
+  }).catch(() => ({ data: [] }))
+  
+  const storeMeta = stores?.[0]?.metadata || {}
+  const configuredStorefrontUrl = storeMeta.paystack_storefront_url as string | undefined
+  const configuredCompanyName = storeMeta.paystack_company_name as string | undefined
+
+  const storefrontUrl = configuredStorefrontUrl || process.env.STOREFRONT_URL || "http://localhost:5173"
   const paymentLink = `${storefrontUrl}/pay/${hash}/${order.id}`
   
   let notificationService: any = null;
@@ -121,7 +131,7 @@ export default async function paymentLinkSubscriber({
     }
   }
 
-  const templatePayload = getPaymentRequiredTemplate(order, paymentLink, remainingBalanceRaw)
+  const templatePayload = getPaymentRequiredTemplate(order, paymentLink, remainingBalanceRaw, configuredCompanyName)
   const notificationSubject = `Action Required: Payment Pending for Order #${order.display_id || order.id}`
   
   // 1. Send SMS

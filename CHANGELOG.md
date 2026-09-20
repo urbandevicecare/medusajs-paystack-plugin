@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.0] - 2026-09-20
+
+### Added
+- **Admin Settings Tab**: Added a new configuration interface in the Paystack Admin Dashboard.
+- **Dynamic Store Preferences**: Administrators can now dynamically set the `Company Name` (used in notification headers and text) and `Storefront URL` (base URL for the payment link).
+- **Graceful Fallbacks**: If dynamic settings are left blank, the system automatically falls back to `.env` variables (`STORE_NAME` and `STOREFRONT_URL`). Settings are securely persisted to the Medusa `Store` metadata.
+
+---
+
 ## [v1.0.9] - 2026-09-20
 
 ### Fixed
