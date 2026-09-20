@@ -46,9 +46,15 @@ export async function POST(
     return res.status(404).json({ message: "Order not found" });
   }
 
-  const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
+  const { data: stores } = await query.graph({
+    entity: "store",
+    fields: ["metadata"]
+  }).catch(() => ({ data: [] }));
+  const dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key as string | undefined;
+
+  const secretKey = dynamicSecret || process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
   if (!secretKey) {
-    return res.status(500).json({ message: "PAYSTACK_SECRET_KEY or PAYSTACK_TEST_SECRET_KEY must be set in environment for STK push" });
+    return res.status(500).json({ message: "Server misconfiguration: missing Paystack secret key." });
   }
 
   // Format phone number according to Paystack mobile money standards

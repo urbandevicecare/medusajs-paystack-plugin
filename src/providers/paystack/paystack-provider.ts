@@ -58,6 +58,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   protected readonly configuration: PaystackPaymentProcessorConfig;
   protected readonly paystack: PaystackClient;
   protected readonly debug: boolean;
+  protected readonly container: any;
 
   static validateOptions(options: PaystackPaymentProcessorConfig): void {
     const secretKey =
@@ -68,12 +69,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       process.env.PAYSTACK_TEST_SECRET_KEY ||
       process.env.PAYSTACK_KEY;
 
-    if (!secretKey) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_ARGUMENT,
-        "The Paystack provider requires the secret_key option (or PAYSTACK_SECRET_KEY in environment)",
-      );
-    }
+    // We no longer strictly enforce secretKey at startup because it could be configured dynamically in the dashboard later
   }
 
   constructor(
@@ -81,6 +77,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     options: PaystackPaymentProcessorConfig,
   ) {
     super(container, options);
+    this.container = container;
 
     const secretKey =
       options?.secret_key ||
@@ -88,18 +85,39 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       (options as any)?.apiKey ||
       process.env.PAYSTACK_SECRET_KEY ||
       process.env.PAYSTACK_TEST_SECRET_KEY ||
-      process.env.PAYSTACK_KEY;
-
-    if (!secretKey) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_ARGUMENT,
-        "The Paystack provider requires the secret_key option",
-      );
-    }
+      process.env.PAYSTACK_KEY ||
+      "DUMMY_KEY_PENDING_CONFIG";
 
     this.configuration = { ...options, secret_key: secretKey };
     this.paystack = new PaystackClient(secretKey);
     this.debug = Boolean(options.debug);
+  }
+
+  protected async getClient(): Promise<PaystackClient> {
+    try {
+      if (this.container && this.container.query) {
+        const query = this.container.query as any;
+        const { data: stores } = await query.graph({
+          entity: "store",
+          fields: ["metadata"]
+        }).catch(() => ({ data: [] }));
+        
+        const dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key;
+        if (dynamicSecret) {
+          return new PaystackClient(dynamicSecret);
+        }
+      }
+    } catch (err) {
+      if (this.debug) console.warn("Failed to fetch dynamic paystack secret from store:", err);
+    }
+    
+    if (this.configuration.secret_key === "DUMMY_KEY_PENDING_CONFIG") {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_ARGUMENT,
+        "Paystack Secret Key is missing. Please configure it in the Admin Dashboard Settings or via environment variables."
+      );
+    }
+    return this.paystack;
   }
 
   async initiatePayment(
@@ -108,6 +126,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     if (this.debug) {
       console.info("PS_P_Debug: InitiatePayment", JSON.stringify(input, null, 2));
     }
+    
+    const client = await this.getClient();
 
     const { data, amount, currency_code } = input;
     const contextAny = input.context as any;
@@ -167,7 +187,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         customReference = `ref-${Date.now()}-${randomSuffix}`;
       }
 
-      const response = await this.paystack.transaction.initialize({
+      const response = await client.transaction.initialize({
         amount: paystackAmount,
         email: email as string,
         currency: (currency_code || "NGN").toUpperCase(),
@@ -224,6 +244,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   ): Promise<AuthorizePaymentOutput> {
     if (this.debug) console.info("PS_P_Debug: AuthorizePayment", JSON.stringify(input, null, 2));
 
+    const client = await this.getClient();
+
     try {
       const { paystackTxRef } = input.data as PaystackPaymentProviderSessionData;
 
@@ -234,7 +256,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         );
       }
 
-      const response = await this.paystack.transaction.verify({ reference: paystackTxRef });
+      const response = await client.transaction.verify({ reference: paystackTxRef });
 
       if (!response.status) {
         return {
@@ -286,6 +308,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   ): Promise<RetrievePaymentOutput> {
     if (this.debug) console.info("PS_P_Debug: RetrievePayment", JSON.stringify(input, null, 2));
 
+    const client = await this.getClient();
+
     try {
       const { paystackTxId, paystackTxRef } = input.data as AuthorizedPaystackPaymentProviderSessionData;
 
@@ -297,8 +321,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       }
 
       const response = paystackTxId 
-        ? await this.paystack.transaction.get({ id: paystackTxId })
-        : await this.paystack.transaction.verify({ reference: paystackTxRef });
+        ? await client.transaction.get({ id: paystackTxId })
+        : await client.transaction.verify({ reference: paystackTxRef });
 
       if (!response.status) {
         throw new MedusaError(
@@ -328,6 +352,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
     if (this.debug) console.info("PS_P_Debug: RefundPayment", JSON.stringify(input, null, 2));
 
+    const client = await this.getClient();
+
     try {
       const { paystackTxId, paystackTxRef } = input.data as AuthorizedPaystackPaymentProviderSessionData;
 
@@ -349,7 +375,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         );
       }
 
-      const response = await this.paystack.refund.create({
+      const response = await client.refund.create({
         transaction: String(paystackTxId || paystackTxRef),
         amount: paystackAmount,
       });
@@ -384,6 +410,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   ): Promise<GetPaymentStatusOutput> {
     if (this.debug) console.info("PS_P_Debug: GetPaymentStatus", JSON.stringify(input, null, 2));
 
+    const client = await this.getClient();
+
     const { paystackTxId, paystackTxRef } = input.data as AuthorizedPaystackPaymentProviderSessionData;
 
     if (!paystackTxId && !paystackTxRef) {
@@ -392,8 +420,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
 
     try {
       const response = paystackTxId
-        ? await this.paystack.transaction.get({ id: paystackTxId })
-        : await this.paystack.transaction.verify({ reference: paystackTxRef });
+        ? await client.transaction.get({ id: paystackTxId })
+        : await client.transaction.verify({ reference: paystackTxRef });
 
       if (!response.status) {
         return { status: PaymentSessionStatus.ERROR };
@@ -424,7 +452,23 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     if (this.debug) console.info("PS_P_Debug: Webhook", JSON.stringify(payload, null, 2));
 
     const { data: rawPayloadData, rawData, headers } = (payload || {}) as any;
-    const webhookSecretKey = this.configuration.secret_key;
+    
+    let dynamicSecret = this.configuration.secret_key;
+    try {
+      if (this.container && this.container.query) {
+        const query = this.container.query as any;
+        const { data: stores } = await query.graph({
+          entity: "store",
+          fields: ["metadata"]
+        }).catch(() => ({ data: [] }));
+        if (stores?.[0]?.metadata?.paystack_secret_key) {
+          dynamicSecret = stores[0].metadata.paystack_secret_key;
+        }
+      }
+    } catch (e) {
+      if (this.debug) console.warn("Failed to fetch dynamic secret for webhook:", e);
+    }
+    const webhookSecretKey = dynamicSecret;
 
     if (!webhookSecretKey) {
       return { action: PaymentActions.NOT_SUPPORTED };

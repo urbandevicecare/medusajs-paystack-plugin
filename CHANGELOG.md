@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.1] - 2026-09-20
+
+### Added
+- **Dynamic Secret Key Configuration**: Added the ability to store and use the `Paystack Secret Key` directly from the Admin Settings Tab. This securely overrides the `PAYSTACK_SECRET_KEY` environment variable, enabling administrators to rotate keys instantly without restarting the server.
+- **Dynamic Provider Re-initialization**: The plugin's core payment methods (Initiate, Authorize, Refund, Retrieve, Status) and the STK Push routes now automatically fetch the latest configured Secret Key on-the-fly.
+
+---
+
 ## [v1.1.0] - 2026-09-20
 
 ### Added

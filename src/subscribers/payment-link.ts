@@ -90,8 +90,20 @@ export default async function paymentLinkSubscriber({
     return;
   }
 
+  // Fetch Store Settings
+  const { data: stores } = await query.graph({
+    entity: "store",
+    fields: ["metadata"]
+  }).catch(() => ({ data: [] }))
+  
+  const storeMeta = stores?.[0]?.metadata || {}
+  const configuredStorefrontUrl = storeMeta.paystack_storefront_url as string | undefined
+  const configuredCompanyName = storeMeta.paystack_company_name as string | undefined
+  const dynamicSecret = storeMeta.paystack_secret_key as string | undefined
+
   // Generate HMAC hash
   const secretKey = 
+    dynamicSecret ||
     process.env.MEDUSA_PUBLISHABLE_KEY || 
     process.env.MEDUSA_PUBLISHABLE_API_KEY || 
     process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 
@@ -105,16 +117,6 @@ export default async function paymentLinkSubscriber({
   const hash = crypto.createHmac('sha256', secretKey)
     .update(order.id)
     .digest('hex');
-
-  // Fetch Store Settings
-  const { data: stores } = await query.graph({
-    entity: "store",
-    fields: ["metadata"]
-  }).catch(() => ({ data: [] }))
-  
-  const storeMeta = stores?.[0]?.metadata || {}
-  const configuredStorefrontUrl = storeMeta.paystack_storefront_url as string | undefined
-  const configuredCompanyName = storeMeta.paystack_company_name as string | undefined
 
   const storefrontUrl = configuredStorefrontUrl || process.env.STOREFRONT_URL || "http://localhost:5173"
   const paymentLink = `${storefrontUrl}/pay/${hash}/${order.id}`

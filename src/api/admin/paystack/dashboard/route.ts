@@ -114,7 +114,15 @@ export async function GET(
 
     // Attempt to fetch live Paystack account balance if secret key is present
     let balance = null;
-    const secretKey = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
+    let dynamicSecret = "";
+    try {
+      const { data: stores } = await query.graph({ entity: "store", fields: ["metadata"] }).catch(() => ({ data: [] }));
+      if (stores?.[0]?.metadata?.paystack_secret_key) {
+        dynamicSecret = stores[0].metadata.paystack_secret_key as string;
+      }
+    } catch {}
+
+    const secretKey = dynamicSecret || process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
     if (secretKey) {
       try {
         const client = new PaystackClient(secretKey);

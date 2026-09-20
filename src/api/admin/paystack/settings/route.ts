@@ -18,6 +18,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       data: {
         companyName: metadata.paystack_company_name || process.env.STORE_NAME || "Urban Device Care",
         storefrontUrl: metadata.paystack_storefront_url || process.env.STOREFRONT_URL || "http://localhost:5173",
+        secretKey: metadata.paystack_secret_key || "", // Mask this or return empty if preferring security, but returning it so it populates the field
       }
     });
   } catch (error: any) {
@@ -35,13 +36,19 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     }
 
     const store = stores[0];
-    const { companyName, storefrontUrl } = req.body as any;
+    const { companyName, storefrontUrl, secretKey } = req.body as any;
     
-    const updatedMetadata = {
+    const updatedMetadata: Record<string, any> = {
       ...store.metadata,
       paystack_company_name: companyName,
       paystack_storefront_url: storefrontUrl,
     };
+    
+    if (secretKey) {
+      updatedMetadata.paystack_secret_key = secretKey;
+    } else {
+      delete updatedMetadata.paystack_secret_key;
+    }
 
     // Update store metadata
     await storeService.updateStores(store.id, {
@@ -53,6 +60,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       data: {
         companyName,
         storefrontUrl,
+        secretKey: secretKey ? "********" : "",
       }
     });
   } catch (error: any) {

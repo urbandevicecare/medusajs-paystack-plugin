@@ -18,7 +18,7 @@ const PaystackDashboard = () => {
   const [loading, setLoading] = useState(true)
   const [graphView, setGraphView] = useState<"dailyGraph" | "weeklyGraph" | "monthlyGraph" | "yearlyGraph">("monthlyGraph")
 
-  const [settings, setSettings] = useState({ companyName: "", storefrontUrl: "" })
+  const [settings, setSettings] = useState({ companyName: "", storefrontUrl: "", secretKey: "" })
   const [saving, setSaving] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
 
@@ -196,6 +196,20 @@ const PaystackDashboard = () => {
                   />
                   <Text size="small" className="text-ui-fg-muted">
                     The base URL where the payment link points (e.g., https://my-store.com).
+                  </Text>
+                </div>
+
+                <div className="flex flex-col gap-y-2 mt-4 pt-4 border-t border-ui-border-base">
+                  <Label htmlFor="secretKey">Paystack Secret Key</Label>
+                  <Input 
+                    id="secretKey" 
+                    type="password"
+                    placeholder="sk_test_..." 
+                    value={settings.secretKey || ""} 
+                    onChange={(e) => setSettings({ ...settings, secretKey: e.target.value })}
+                  />
+                  <Text size="small" className="text-ui-fg-muted">
+                    Overrides the PAYSTACK_SECRET_KEY in your .env file. Useful for rotating keys without restarting the server. Leave blank to use .env value.
                   </Text>
                 </div>
 
