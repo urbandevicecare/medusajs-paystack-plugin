@@ -65,10 +65,11 @@ export async function POST(
   if (!paymentCollection) {
     console.log("[stk-push] No payment collection found on order. Creating a new one...");
     try {
-      paymentCollection = await paymentModule.createPaymentCollections({
+      const createdCollections = await paymentModule.createPaymentCollections([{
         currency_code: order.currency_code,
         amount: Number(order.total),
-      });
+      }]);
+      paymentCollection = Array.isArray(createdCollections) ? createdCollections[0] : createdCollections;
 
       // Link new payment collection to order
       await remoteLink.create({
