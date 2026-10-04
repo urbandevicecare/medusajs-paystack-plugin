@@ -8,10 +8,9 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "./.medusa/server/src",
-    "rootDir": "./src",
     "jsx": "react-jsx",
     "types": ["node", "react"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "dummy.ts"],
   "exclude": ["node_modules", "dist"]
 }
