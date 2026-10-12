@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.6] - 2026-10-12
+
+### Added
+- **Detailed Decline Error Extraction**: Both admin (`/admin/paystack/stk-push`) and storefront (`/store/paystack/stk-push`) Mobile Money STK routes now extract specific nested error and decline reasons from Paystack (`data.message`, `data.gateway_response`) instead of a generic "Charge attempted".
+- **Custom Payment & Verification Routes**: Added `POST /store/paystack/custom-payment` (returning inline `access_code` and `authorization_url`) and `POST /store/paystack/verify` for client-side transaction status validation.
+- **WhatsApp Notification Integration**: Extended the payment link subscriber (`order.placed`) to dispatch WhatsApp payment reminders alongside SMS and rich HTML emails.
+- **Automated Test Suite**: Added 9 automated tests via Node.js test runner covering admin and store STK pushes, settings updates, custom payments, verification, and decline message extraction.
+
+### Fixed
+- **Admin STK Push Widget Accessibility**: Replaced `<Text>` elements with `@medusajs/ui`'s `<Label>` and `<Text as="span">` to resolve React DOM nesting warnings (`validateDOMNesting: <div> cannot appear as a descendant of <p>`).
+- **Dynamic Secret Key Fallback**: Fixed key precedence to seamlessly fall back to environment variables (`PAYSTACK_SECRET_KEY`) when store metadata keys are rotated or cleared.
+- **Scheduled Transaction Sync**: Hardened `sync-paystack-transactions` scheduled job with defensive container resolution.
+- **CI / CD Workflow**: Enabled manual `workflow_dispatch` and removed `[skip ci]` to ensure automated publishing and release creation on GitHub and npm.
+
+---
+
 ## [v1.1.1] - 2026-09-20
 
 ### Added

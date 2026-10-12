@@ -1,7 +1,6 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
-import PaystackClient from "../../../../providers/paystack/services/paystack-client";
-import { getPaystackAmount, formatMobileMoneyPhone } from "../../../../providers/paystack/utils/currency";
+import { resolvePaystackSecretKey } from "../../../../providers/paystack/utils/currency";
 
 export async function POST(
   req: MedusaRequest,
@@ -13,195 +12,150 @@ export async function POST(
     return res.status(400).json({ message: "order_id and phone are required" });
   }
 
+  // Format the phone number to +254XXXXXXXXX (Paystack MPESA format)
+  let formattedPhone = phone.replace(/\D/g, "");
+  if (formattedPhone.startsWith("0")) {
+    formattedPhone = "+254" + formattedPhone.substring(1);
+  } else if (formattedPhone.length === 9 && (formattedPhone.startsWith("7") || formattedPhone.startsWith("1"))) {
+    formattedPhone = "+254" + formattedPhone;
+  } else if (formattedPhone.startsWith("254")) {
+    formattedPhone = "+" + formattedPhone;
+  }
+
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY);
-  const paymentModule = req.scope.resolve(Modules.PAYMENT);
-  const remoteLink = req.scope.resolve(ContainerRegistrationKeys.REMOTE_LINK);
-  
-  console.log("[stk-push] Looking up order_id:", order_id);
-  const { data: orders } = await query.graph({
-    entity: "order",
-    fields: [
-      "id",
-      "display_id",
-      "total",
-      "currency_code",
-      "email",
-      "customer_id",
-      "shipping_address.phone",
-      "billing_address.phone",
-      "payment_collections.*",
-      "payment_collections.payment_sessions.*"
-    ],
-    filters: { id: order_id }
-  }).catch(err => {
-    console.error("[stk-push] query.graph error:", err);
-    return { data: [] };
-  });
 
-  console.log("[stk-push] Query result orders count:", orders.length);
+  // 1. Retrieve the Order robustly
+  let order: any = null;
+  try {
+    const orderService = req.scope.resolve(Modules.ORDER);
+    order = await orderService.retrieveOrder(order_id).catch(() => null);
+  } catch {}
 
-  const order = orders[0];
   if (!order) {
-    console.log("[stk-push] Order not found in query results!");
+    try {
+      const { data: orders } = await query.graph({
+        entity: "order",
+        fields: ["id", "display_id", "currency_code", "email"],
+        filters: { id: order_id }
+      }).catch(() => ({ data: [] }));
+      order = orders?.[0];
+    } catch {}
+  }
+
+  if (!order) {
+    try {
+      const pgConnection = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION);
+      const rows = await pgConnection("order")
+        .where("id", order_id)
+        .orWhere("display_id", isNaN(Number(order_id)) ? -1 : Number(order_id))
+        .limit(1);
+      if (rows && rows[0]) order = rows[0];
+    } catch {}
+  }
+
+  if (!order) {
     return res.status(404).json({ message: "Order not found" });
   }
 
+  // 2. Resolve Paystack Secret Key
   const { data: stores } = await query.graph({
     entity: "store",
     fields: ["metadata"]
   }).catch(() => ({ data: [] }));
   const dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key as string | undefined;
 
-  const secretKey = dynamicSecret || process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
+  const secretKey = resolvePaystackSecretKey(dynamicSecret);
   if (!secretKey) {
-    return res.status(500).json({ message: "Server misconfiguration: missing Paystack secret key." });
+    return res.status(500).json({ message: "Paystack is not configured. Please set PAYSTACK_SECRET_KEY." });
   }
 
-  // Format phone number according to Paystack mobile money standards
-  const formattedPhone = formatMobileMoneyPhone(phone, order.currency_code);
-
-  // 1. Resolve or Create Payment Collection
-  let paymentCollection = (order as any).payment_collections?.[0];
-  if (!paymentCollection) {
-    console.log("[stk-push] No payment collection found on order. Creating a new one...");
+  // 3. Resolve amount
+  let chargeAmount = amount !== undefined && amount !== null ? Number(amount) : Number(order.total || 0);
+  if (!chargeAmount || chargeAmount <= 0) {
+    // If order.total wasn't loaded directly, check order_summary table
     try {
-      const createdCollections = await paymentModule.createPaymentCollections([{
-        currency_code: order.currency_code,
-        amount: Number(order.total),
-      }]);
-      paymentCollection = Array.isArray(createdCollections) ? createdCollections[0] : createdCollections;
-
-      // Link new payment collection to order
-      await remoteLink.create({
-        [Modules.ORDER]: { order_id: order.id },
-        [Modules.PAYMENT]: { payment_collection_id: paymentCollection.id },
-      });
-      console.log("[stk-push] Created and linked payment collection:", paymentCollection.id);
-    } catch (createErr: any) {
-      console.error("[stk-push] Failed to create payment collection for order:", createErr);
-      return res.status(500).json({ 
-        message: `Failed to initialize payment collection for order: ${createErr.message}` 
-      });
-    }
-  }
-
-  // Idempotency / Double-Tap Protection
-  const activeSessions = paymentCollection.payment_sessions || [];
-  const recentStkSession = activeSessions.find((session: any) => {
-    const isPending = session.status === "pending" || session.status === "pending_authorization";
-    if (!isPending || !session.data?.stk_push) return false;
-    const createdAt = new Date(session.created_at).getTime();
-    const now = Date.now();
-    // Block if there is a pending STK push session created in the last 45 seconds
-    return (now - createdAt) < 45000;
-  });
-
-  if (recentStkSession) {
-    return res.status(429).json({ 
-      message: "An STK push request is already processing. Please check your phone or wait 45 seconds before trying again." 
-    });
-  }
-
-  const chargeAmount = amount ? Number(amount) : Number(order.total);
-
-  const authorizedAmount = Number(paymentCollection.authorized_amount) || 0;
-  const capturedAmount = Number(paymentCollection.captured_amount) || 0;
-  const totalAmount = Number(paymentCollection.amount) || Number(order.total);
-  const unpaidBalance = Math.max(0, totalAmount - Math.max(authorizedAmount, capturedAmount));
-
-  if (unpaidBalance > 0 && chargeAmount > unpaidBalance) {
-    return res.status(400).json({ 
-      message: `Overpayment not allowed. The remaining unpaid balance is ${unpaidBalance}` 
-    });
+      const pgConnection = req.scope.resolve(ContainerRegistrationKeys.PG_CONNECTION);
+      const summaryRows = await pgConnection("order_summary")
+        .where("order_id", order.id)
+        .orderBy("version", "desc")
+        .limit(1);
+      if (summaryRows && summaryRows[0]?.totals) {
+        const totals = summaryRows[0].totals;
+        chargeAmount = Number(totals.pending_difference || totals.current_order_total || 0);
+      }
+    } catch {}
   }
 
   if (chargeAmount < 1) {
-    return res.status(400).json({ 
-      message: "Amount to pay must be at least 1." 
-    });
+    return res.status(400).json({ message: "Amount to pay must be at least 1." });
   }
 
-  const paystackAmount = getPaystackAmount(chargeAmount, order.currency_code);
+  const paystackAmount = Math.round(chargeAmount * 100);
+  const currency = (order.currency_code || "KES").toUpperCase();
+  const reference = `STK-${order.display_id || order.id.slice(-6)}-${Date.now()}`;
+
+  let customerEmail = order.email;
+  if (!customerEmail) {
+    customerEmail = `guest-${order.id}@urbandevicecare.co.uk`;
+  }
 
   let provider = "mpesa";
-  const curr = order.currency_code.toLowerCase();
+  const curr = currency.toLowerCase();
   if (curr === "ghs" || curr === "xof" || curr === "rwf") {
     provider = "mtn";
   }
 
-  // Resolve Provider ID (defaults to pp_paystack_paystack)
-  let providerId = "pp_paystack_paystack";
   try {
-    const { data: providers } = await query.graph({
-      entity: "payment_provider",
-      fields: ["id"],
-      filters: { id: { $like: "%paystack%" } }
-    }).catch(() => ({ data: [] }));
-
-    if (providers && providers.length > 0) {
-      providerId = providers[0].id;
-    }
-  } catch {
-    // Fall back to default
-  }
-
-  // Ensure valid email for Paystack charge
-  const customerEmail = (order.email as string) || 
-    `${formattedPhone.replace(/\+/g, '')}@urbandevicecare.co.uk`;
-
-  const client = new PaystackClient(secretKey);
-
-  try {
-    const reference = `stk_${Date.now()}_${order.id.slice(-8)}`;
-
-    // Create session in Medusa Payment Collection
-    const session = await paymentModule.createPaymentSession(paymentCollection.id, {
-      provider_id: providerId,
-      currency_code: order.currency_code,
-      amount: chargeAmount,
-      data: {
-        email: customerEmail,
-        paystackTxRef: reference,
-        stk_push: true,
-        phone: formattedPhone,
-        amount: chargeAmount,
-      }
-    });
-
-    // Initiate STK Push via Paystack Charge API with exact currency, reference, and session metadata
-    const chargeResponse = await client.charge.create({
+    const payload = {
       email: customerEmail,
       amount: paystackAmount,
-      currency: order.currency_code.toUpperCase(),
-      reference: reference,
-      metadata: {
-        session_id: session.id,
-        order_id: order.id,
-        phone: formattedPhone,
-        charge_amount: chargeAmount,
-      },
+      currency,
+      reference,
       mobile_money: {
         phone: formattedPhone,
-        provider
-      }
+        provider,
+      },
+      metadata: {
+        order_id: order.id,
+        stk_push: true,
+      },
+    };
+
+    const paystackRes = await fetch("https://api.paystack.co/charge", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     });
 
-    if (!chargeResponse.status) {
-      return res.status(400).json({ 
-        message: chargeResponse.message || "Paystack rejected STK push" 
+    const paystackData = await paystackRes.json();
+
+    if (!paystackRes.ok || !paystackData.status || paystackData.data?.status === "failed") {
+      const detailedMessage =
+        paystackData.data?.message ||
+        paystackData.data?.gateway_response ||
+        paystackData.data?.data?.message ||
+        paystackData.message ||
+        "Failed to push STK prompt via Paystack";
+
+      return res.status(400).json({
+        message: detailedMessage,
+        data: paystackData,
       });
     }
 
-    res.status(200).json({ 
-      success: true, 
-      message: chargeResponse.data?.display_text || "STK push initiated successfully. Please complete the prompt on your phone.",
+    res.status(200).json({
+      success: true,
+      message: paystackData.data?.display_text || `STK push prompt sent to ${formattedPhone}. Please check your phone.`,
       reference,
-      data: chargeResponse.data 
+      data: paystackData.data,
     });
   } catch (error: any) {
-    console.error("Storefront STK Push Error:", error.response?.data || error);
-    res.status(error.response?.status || 500).json({ 
-      message: error.response?.data?.message || error.message || "Failed to initiate STK Push" 
+    console.error("[Paystack STK Push Error]:", error);
+    res.status(500).json({
+      message: error?.message || "Failed to initiate STK Push",
     });
   }
 }

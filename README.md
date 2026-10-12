@@ -134,6 +134,7 @@ yarn dev     # Development watch mode
 
 Detailed release notes and migration guides are maintained in [CHANGELOG.md](./CHANGELOG.md).
 
+- **v1.1.6**: Improved STK push decline error extraction, fixed admin widget DOM nesting, added WhatsApp notifications, added `/store/paystack/custom-payment` and `/store/paystack/verify` endpoints, automated unit test suite (9 tests), and streamlined CI/CD publishing.
 - **v1.1.1**: Added dynamic Admin Settings tab to configure Paystack Secret Key, Company Name, and Storefront URL, overriding `.env` files dynamically using store metadata. Fixed SMS transparency for generic plugins.
 - **v1.0.8**: Rich, professionally styled HTML email and SMS templates with itemized line items, full financial breakdown, delivery destination, and mobile CTA button.
 - **v1.0.7**: Dedicated `FEATURES.md` and `CHANGELOG.md` documentation, automated GitHub Release changelog population.

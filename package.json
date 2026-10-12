@@ -22,7 +22,8 @@
   ],
   "scripts": {
     "build": "medusa plugin:build",
-    "dev": "medusa plugin:dev"
+    "dev": "medusa plugin:dev",
+    "test": "npx tsx --test src/api/__tests__/*.test.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "^2.17.2",

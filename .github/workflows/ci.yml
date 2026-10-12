@@ -2,9 +2,11 @@ name: Bump and Publish
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-bump-publish:
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -34,13 +36,12 @@ jobs:
           git config --global user.email "github-actions[bot]@://github.com"
 
       # 4. Bump version (patch), commit, and tag
-      # Use [skip ci] in the message to prevent an infinite loop
       # We restore any modified files (like yarn.lock) to keep git clean for npm version
       - name: Bump Version
         id: bump_version
         run: |
           git restore .
-          npm version patch -m "chore: bump version to %s [skip ci]"
+          npm version patch -m "chore: bump version to %s"
           PKG_VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=$PKG_VERSION" >> $GITHUB_OUTPUT
           echo "VERSION=$PKG_VERSION" >> $GITHUB_ENV

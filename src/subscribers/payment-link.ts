@@ -101,18 +101,12 @@ export default async function paymentLinkSubscriber({
   const configuredCompanyName = storeMeta.paystack_company_name as string | undefined
   const dynamicSecret = storeMeta.paystack_secret_key as string | undefined
 
-  // Generate HMAC hash
+  // Generate HMAC hash matching the storefront's secure-link verification
   const secretKey = 
-    dynamicSecret ||
     process.env.MEDUSA_PUBLISHABLE_KEY || 
-    process.env.MEDUSA_PUBLISHABLE_API_KEY || 
     process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 
-    process.env.PAYSTACK_SECRET_KEY;
-
-  if (!secretKey) {
-    logger.error("[Paystack-Plugin] Missing MEDUSA_PUBLISHABLE_KEY or PAYSTACK_SECRET_KEY for HMAC generation")
-    return
-  }
+    process.env.MEDUSA_PUBLISHABLE_API_KEY || 
+    "super_secret_fallback_key";
 
   const hash = crypto.createHmac('sha256', secretKey)
     .update(order.id)
@@ -137,7 +131,7 @@ export default async function paymentLinkSubscriber({
   const notificationSubject = `Action Required: Payment Pending for Order #${order.display_id || order.id}`
   
   // 1. Send SMS
-  const phone = (order.shipping_address as any)?.phone
+  const phone = (order.shipping_address as any)?.phone || (order as any).customer?.phone
   if (phone) {
     try {
       await notificationService.createNotifications({
@@ -182,6 +176,28 @@ export default async function paymentLinkSubscriber({
       logger.info(`[Paystack-Plugin] Payment link Email queued for ${order.email}`)
     } catch (e: any) {
       logger.error(`[Paystack-Plugin] Failed to send Email to ${order.email}: ${e.message}`)
+    }
+  }
+
+  // 3. Send WhatsApp
+  if (phone) {
+    try {
+      await notificationService.createNotifications({
+        to: phone,
+        channel: "whatsapp",
+        template: process.env.PAYSTACK_WHATSAPP_TEMPLATE || "paystack-payment-required-whatsapp",
+        data: {
+          message: templatePayload.text,
+          payment_link: paymentLink,
+          order_id: order.id,
+          display_id: order.display_id,
+          remaining_balance: remainingBalanceRaw,
+          currency_code: order.currency_code,
+        },
+      })
+      logger.info(`[Paystack-Plugin] Payment link WhatsApp queued for ${phone}`)
+    } catch (e: any) {
+      logger.error(`[Paystack-Plugin] Failed to send WhatsApp to ${phone}: ${e.message}`)
     }
   }
 }

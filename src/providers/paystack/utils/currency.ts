@@ -60,3 +60,17 @@ export function formatMobileMoneyPhone(phone: string, currency: string): string 
 
   return cleaned;
 }
+
+export function resolvePaystackSecretKey(dynamicSecret?: string): string {
+  if (dynamicSecret && dynamicSecret.trim() !== "") {
+    return dynamicSecret.trim();
+  }
+  return (
+    process.env.PAYSTACK_SECRET_KEY ||
+    process.env.PAYSTACK_TEST_SECRET_KEY ||
+    process.env.PAYSTACK_KEY ||
+    process.env.PAYSTACK_SECRET_KEY_URBANDEVICECARE ||
+    Object.entries(process.env).find(([k, v]) => k.startsWith("PAYSTACK_SECRET_KEY") && Boolean(v))?.[1] ||
+    ""
+  );
+}

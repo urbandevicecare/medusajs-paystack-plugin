@@ -44,9 +44,9 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       paystack_storefront_url: storefrontUrl,
     };
     
-    if (secretKey) {
-      updatedMetadata.paystack_secret_key = secretKey;
-    } else {
+    if (secretKey && secretKey !== "********") {
+      updatedMetadata.paystack_secret_key = secretKey.trim();
+    } else if (secretKey === "") {
       delete updatedMetadata.paystack_secret_key;
     }
 

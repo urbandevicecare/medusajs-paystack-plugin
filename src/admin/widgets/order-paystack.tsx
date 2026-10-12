@@ -1,6 +1,6 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { DetailWidgetProps, AdminOrder } from "@medusajs/framework/types"
-import { Container, Heading, Text, Button, Input } from "@medusajs/ui"
+import { Container, Heading, Text, Button, Input, Label } from "@medusajs/ui"
 import { useState } from "react"
 
 import Medusa from "@medusajs/js-sdk"
@@ -49,7 +49,12 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
       setFeedback({ type: "success", message: displayMsg })
     } catch (e: any) {
       console.error("STK Push error:", e)
-      const errorMsg = e?.message || e?.response?.data?.message || "Failed to initiate STK Push"
+      const errorMsg = 
+        e?.data?.message || 
+        e?.response?.data?.message || 
+        e?.data?.data?.message || 
+        e?.message || 
+        "Failed to initiate STK Push"
       setFeedback({ type: "error", message: errorMsg })
     } finally {
       setIsLoading(false)
@@ -63,7 +68,7 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
       <div className="flex items-center justify-between px-6 py-4">
         <div>
           <Heading level="h2">Paystack - STK Push</Heading>
-          <Text size="small" className="text-ui-fg-subtle">
+          <Text as="span" size="small" className="text-ui-fg-subtle block">
             Prompt customer for payment via M-Pesa / Mobile Money ({currencyCode}).
           </Text>
         </div>
@@ -83,7 +88,7 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <Text size="xsmall" className="text-ui-fg-subtle mb-1">Phone Number</Text>
+            <Label size="xsmall" className="text-ui-fg-subtle mb-1 block">Phone Number</Label>
             <Input 
               placeholder="e.g. 0712345678 or +254..." 
               value={phone} 
@@ -91,7 +96,7 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
             />
           </div>
           <div>
-            <Text size="xsmall" className="text-ui-fg-subtle mb-1">Amount ({currencyCode}, leave blank for full)</Text>
+            <Label size="xsmall" className="text-ui-fg-subtle mb-1 block">Amount ({currencyCode}, leave blank for full)</Label>
             <Input 
               type="number"
               placeholder={`Order Total: ${(data as any)?.total || 0}`} 

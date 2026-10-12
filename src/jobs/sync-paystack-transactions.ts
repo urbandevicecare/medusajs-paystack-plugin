@@ -1,11 +1,17 @@
 import { MedusaContainer } from "@medusajs/framework/types";
 import { Modules } from "@medusajs/framework/utils";
 
-export default async function syncPaystackTransactions({
-  container,
-}: {
-  container: MedusaContainer;
-}) {
+export default async function syncPaystackTransactions(
+  containerOrArgs: any
+) {
+  const container: MedusaContainer = containerOrArgs?.resolve
+    ? containerOrArgs
+    : containerOrArgs?.container;
+
+  if (!container || typeof container.resolve !== "function") {
+    return;
+  }
+
   const query = container.resolve("query");
   const paymentModule = container.resolve(Modules.PAYMENT);
   const logger = container.resolve("logger");

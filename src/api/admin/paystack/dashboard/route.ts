@@ -1,6 +1,7 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import PaystackClient from "../../../../providers/paystack/services/paystack-client";
+import { resolvePaystackSecretKey } from "../../../../providers/paystack/utils/currency";
 
 export async function GET(
   req: MedusaRequest,
@@ -122,7 +123,7 @@ export async function GET(
       }
     } catch {}
 
-    const secretKey = dynamicSecret || process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_TEST_SECRET_KEY || process.env.PAYSTACK_KEY;
+    const secretKey = resolvePaystackSecretKey(dynamicSecret);
     if (secretKey) {
       try {
         const client = new PaystackClient(secretKey);

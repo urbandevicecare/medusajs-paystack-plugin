@@ -1,7 +1,7 @@
 import crypto from "crypto";
 
 import PaystackClient from "./services/paystack-client";
-import { getPaystackAmount, getMedusaAmount } from "./utils/currency";
+import { getPaystackAmount, getMedusaAmount, resolvePaystackSecretKey } from "./utils/currency";
 
 import {
   AuthorizePaymentInput,
@@ -66,6 +66,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
       (options as any)?.secretKey ||
       (options as any)?.apiKey ||
       process.env.PAYSTACK_SECRET_KEY ||
+      process.env.PAYSTACK_SECRET_KEY_URBANDEVICECARE ||
       process.env.PAYSTACK_TEST_SECRET_KEY ||
       process.env.PAYSTACK_KEY;
 
@@ -80,12 +81,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     this.container = container;
 
     const secretKey =
-      options?.secret_key ||
-      (options as any)?.secretKey ||
-      (options as any)?.apiKey ||
-      process.env.PAYSTACK_SECRET_KEY ||
-      process.env.PAYSTACK_TEST_SECRET_KEY ||
-      process.env.PAYSTACK_KEY ||
+      resolvePaystackSecretKey(options?.secret_key || (options as any)?.secretKey || (options as any)?.apiKey) ||
       "DUMMY_KEY_PENDING_CONFIG";
 
     this.configuration = { ...options, secret_key: secretKey };
@@ -94,6 +90,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
   }
 
   protected async getClient(): Promise<PaystackClient> {
+    let dynamicSecret: string | undefined;
     try {
       if (this.container && this.container.query) {
         const query = this.container.query as any;
@@ -102,15 +99,17 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
           fields: ["metadata"]
         }).catch(() => ({ data: [] }));
         
-        const dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key;
-        if (dynamicSecret) {
-          return new PaystackClient(dynamicSecret);
-        }
+        dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key;
       }
     } catch (err) {
       if (this.debug) console.warn("Failed to fetch dynamic paystack secret from store:", err);
     }
     
+    const resolvedSecret = resolvePaystackSecretKey(dynamicSecret || this.configuration.secret_key);
+    if (resolvedSecret) {
+      return new PaystackClient(resolvedSecret);
+    }
+
     if (this.configuration.secret_key === "DUMMY_KEY_PENDING_CONFIG") {
       throw new MedusaError(
         MedusaError.Types.INVALID_ARGUMENT,
@@ -468,7 +467,7 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     } catch (e) {
       if (this.debug) console.warn("Failed to fetch dynamic secret for webhook:", e);
     }
-    const webhookSecretKey = dynamicSecret;
+    const webhookSecretKey = resolvePaystackSecretKey(dynamicSecret);
 
     if (!webhookSecretKey) {
       return { action: PaymentActions.NOT_SUPPORTED };
