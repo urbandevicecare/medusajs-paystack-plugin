@@ -53,7 +53,6 @@ jobs:
       # 6. Publish to npm using your secret token
       - name: Publish to npm
         id: publish
-        continue-on-error: true
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
             echo "::error title=NPM Token Missing::secrets.NPM_TOKEN is empty or not configured in repository secrets!"
@@ -63,33 +62,13 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
           echo "Testing npm auth..."
-          npm whoami 2>&1 | tee /tmp/npm-whoami.log || true
+          npm whoami > /tmp/npm-whoami.log 2>&1 || true
           echo "Publishing..."
-          npm publish --access public 2>&1 | tee /tmp/npm-publish.log
+          npm publish --access public > /tmp/npm-publish.log 2>&1 || true
+          cat /tmp/npm-whoami.log
+          cat /tmp/npm-publish.log
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish Diagnostic & Summary
-        if: always()
-        run: |
-          echo "### NPM Publish Diagnostics" >> $GITHUB_STEP_SUMMARY
-          if [ -f /tmp/npm-whoami.log ]; then
-            echo "**npm whoami:**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat /tmp/npm-whoami.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -f /tmp/npm-publish.log ]; then
-            echo "**npm publish output:**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat /tmp/npm-publish.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ "${{ steps.publish.outcome }}" != "success" ]; then
-            ERR=$(cat /tmp/npm-publish.log | grep -iE 'error|e[0-9]{3}|eneedauth|eotp|forbidden|unauthorized' | head -n 3 | tr '\n' ' ')
-            echo "::error title=NPM Publish Failed::${ERR:-npm publish failed - see step summary}"
-            exit 1
-          fi
 
       # 7. Package tarball asset
       - name: Package tarball asset
@@ -110,6 +89,12 @@ jobs:
               const firstSection = changelog.match(/##\s*\[v?[\d\.]+\][\s\S]*?(?=(?:##\s*\[)|$)/i);
               notes = firstSection ? firstSection[0].trim().replace(/\s*---\s*$/, '') : 'Release v' + version;
             }
+            if (fs.existsSync('/tmp/npm-whoami.log')) {
+              notes += '\n\n### NPM Auth Diagnostics\n\`\`\`\n' + fs.readFileSync('/tmp/npm-whoami.log', 'utf8') + '\n\`\`\`';
+            }
+            if (fs.existsSync('/tmp/npm-publish.log')) {
+              notes += '\n\n### NPM Publish Diagnostics\n\`\`\`\n' + fs.readFileSync('/tmp/npm-publish.log', 'utf8') + '\n\`\`\`';
+            }
             fs.writeFileSync('RELEASE_NOTES.md', notes);
           "
 
@@ -123,3 +108,11 @@ jobs:
           generate_release_notes: false
           files: |
             *.tgz
+
+      # 10. Verify Publish Success
+      - name: Verify Publish Success
+        run: |
+          if grep -qiE 'error|eneedauth|eotp|e401|e403|e404' /tmp/npm-publish.log; then
+            echo "::error title=NPM Publish Error::$(cat /tmp/npm-publish.log | grep -iE 'error|e[0-9]{3}' | head -n 2)"
+            exit 1
+          fi

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.1.9] - 2026-10-12
+## [v1.1.10] - 2026-10-12
 
 ### Added
 - **Detailed Decline Error Extraction**: Both admin (`/admin/paystack/stk-push`) and storefront (`/store/paystack/stk-push`) Mobile Money STK routes now extract specific nested error and decline reasons from Paystack (`data.message`, `data.gateway_response`) instead of a generic "Charge attempted".
