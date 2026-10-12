@@ -112,7 +112,13 @@ jobs:
       # 10. Verify Publish Success
       - name: Verify Publish Success
         run: |
-          if grep -qiE 'error|eneedauth|eotp|e401|e403|e404' /tmp/npm-publish.log; then
-            echo "::error title=NPM Publish Error::$(cat /tmp/npm-publish.log | grep -iE 'error|e[0-9]{3}' | head -n 2)"
+          if grep -qE '^\s*npm\s+(ERR!|error)' /tmp/npm-publish.log; then
+            echo "::error title=NPM Publish Error::$(grep -iE '^\s*npm\s+(ERR!|error)' /tmp/npm-publish.log | head -n 3)"
             exit 1
           fi
+          if ! grep -qE '\+\s*medusajs-paystack-plugin@' /tmp/npm-publish.log; then
+            echo "::error title=NPM Publish Warning::Publish confirmation not detected in npm output"
+            exit 1
+          fi
+          echo "Package successfully published to npm registry."
+
