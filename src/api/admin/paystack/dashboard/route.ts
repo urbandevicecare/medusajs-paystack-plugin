@@ -1,7 +1,7 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import PaystackClient from "../../../../providers/paystack/services/paystack-client";
-import { resolvePaystackSecretKey } from "../../../../providers/paystack/utils/currency";
+import { resolvePaystackSecretKey, normalizePaystackBalances } from "../../../../providers/paystack/utils/currency";
 
 export async function GET(
   req: MedusaRequest,
@@ -114,26 +114,70 @@ export async function GET(
     const yearlyGraph = Array.from(yearlyDataMap.entries()).map(([name, total]) => ({ name, total }));
 
     // Attempt to fetch live Paystack account balance if secret key is present
-    let balance = null;
+    let balance: any = null;
+    let balanceError: string | null = null;
     let dynamicSecret = "";
+    let storeCurrency = "KES";
+
     try {
-      const { data: stores } = await query.graph({ entity: "store", fields: ["metadata"] }).catch(() => ({ data: [] }));
-      if (stores?.[0]?.metadata?.paystack_secret_key) {
-        dynamicSecret = stores[0].metadata.paystack_secret_key as string;
+      const { data: stores } = await query.graph({
+        entity: "store",
+        fields: ["metadata", "default_currency_code", "supported_currencies.*"]
+      }).catch(() => ({ data: [] }));
+
+      if (stores?.[0]) {
+        const storeObj = stores[0] as any;
+        if (storeObj.metadata?.paystack_secret_key) {
+          dynamicSecret = storeObj.metadata.paystack_secret_key as string;
+        }
+        const defaultCurr =
+          storeObj.supported_currencies?.find((c: any) => c.is_default)?.currency_code ||
+          storeObj.supported_currencies?.[0]?.currency_code ||
+          storeObj.default_currency_code;
+        if (defaultCurr) {
+          storeCurrency = defaultCurr.toUpperCase();
+        }
       }
     } catch {}
+
+    if (!dynamicSecret) {
+      try {
+        const storeService = req.scope.resolve(Modules.STORE);
+        if (storeService && typeof storeService.listStores === "function") {
+          const stores = await storeService.listStores({}, { take: 1 });
+          if (stores?.[0]) {
+            const storeObj = stores[0] as any;
+            if (storeObj.metadata?.paystack_secret_key) {
+              dynamicSecret = storeObj.metadata.paystack_secret_key as string;
+            }
+            const defaultCurr =
+              storeObj.supported_currencies?.find((c: any) => c.is_default)?.currency_code ||
+              storeObj.supported_currencies?.[0]?.currency_code ||
+              storeObj.default_currency_code;
+            if (defaultCurr) {
+              storeCurrency = defaultCurr.toUpperCase();
+            }
+          }
+        }
+      } catch {}
+    }
 
     const secretKey = resolvePaystackSecretKey(dynamicSecret);
     if (secretKey) {
       try {
         const client = new PaystackClient(secretKey);
         const balanceRes = await client.balance.get();
-        if (balanceRes.status && balanceRes.data && balanceRes.data.length > 0) {
-          balance = balanceRes.data; // array of balances per currency
+        if (balanceRes && balanceRes.status && balanceRes.data) {
+          balance = normalizePaystackBalances(balanceRes.data, storeCurrency);
+        } else if (balanceRes && !balanceRes.status) {
+          balanceError = balanceRes.message || "Failed to retrieve balance from Paystack";
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to fetch Paystack balance", err);
+        balanceError = err?.response?.data?.message || err.message || "Could not connect to Paystack";
       }
+    } else {
+      balanceError = "Paystack secret key is not configured";
     }
 
     res.status(200).json({
@@ -145,7 +189,8 @@ export async function GET(
         weeklyGraph,
         monthlyGraph,
         yearlyGraph,
-        balance
+        balance,
+        balanceError,
       }
     });
   } catch (error: any) {

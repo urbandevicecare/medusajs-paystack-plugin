@@ -1,6 +1,7 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { resolvePaystackSecretKey } from "../../../../providers/paystack/utils/currency";
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import { resolvePaystackSecretKey, getMedusaAmount } from "../../../../providers/paystack/utils/currency";
+import { reconcileAndCapturePaystackPayment } from "../../../../providers/paystack/utils/reconcile-payment";
 
 export async function POST(
   req: MedusaRequest,
@@ -13,11 +14,25 @@ export async function POST(
   }
 
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY);
-  const { data: stores } = await query.graph({
-    entity: "store",
-    fields: ["metadata"]
-  }).catch(() => ({ data: [] }));
-  const dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key as string | undefined;
+  let dynamicSecret = "";
+
+  try {
+    const { data: stores } = await query.graph({
+      entity: "store",
+      fields: ["metadata"]
+    }).catch(() => ({ data: [] }));
+    dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key as string || "";
+  } catch {}
+
+  if (!dynamicSecret) {
+    try {
+      const storeService = req.scope.resolve(Modules.STORE);
+      if (storeService && typeof storeService.listStores === "function") {
+        const stores = await storeService.listStores({}, { take: 1 });
+        dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key as string || "";
+      }
+    } catch {}
+  }
 
   const secretKey = resolvePaystackSecretKey(dynamicSecret);
   if (!secretKey) {
@@ -45,13 +60,32 @@ export async function POST(
     const txData = paystackData.data;
     const isSuccess = txData.status === "success";
 
+    let reconcileResult: any = null;
+    const orderId = txData.metadata?.order_id;
+    const medusaAmount = getMedusaAmount(Number(txData.amount || 0), txData.currency);
+
+    if (isSuccess && orderId) {
+      try {
+        reconcileResult = await reconcileAndCapturePaystackPayment({
+          container: req.scope,
+          orderId,
+          reference: txData.reference,
+          amount: medusaAmount,
+          currency: txData.currency,
+        });
+      } catch (err: any) {
+        console.warn("[Paystack Verify] Error during auto-reconciliation:", err);
+      }
+    }
+
     res.status(200).json({
       success: isSuccess,
       status: txData.status,
       message: isSuccess ? "Payment verified successfully" : `Payment status: ${txData.status}`,
       reference: txData.reference,
-      amount: txData.amount / 100,
+      amount: medusaAmount,
       currency: txData.currency,
+      captured: Boolean(reconcileResult?.captured),
       data: txData,
     });
   } catch (error: any) {

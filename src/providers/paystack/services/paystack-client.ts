@@ -89,5 +89,9 @@ export default class PaystackClient {
       const response = await this.axios.get("/balance");
       return response.data;
     },
+    getLedger: async () => {
+      const response = await this.axios.get("/balance/ledger");
+      return response.data;
+    },
   };
 }

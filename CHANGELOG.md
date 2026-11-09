@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.12] - 2026-11-09
+
+### Added
+- **Live Paystack Balance Display & Admin Widget**: Added dedicated `PaystackBalanceWidget` to the orders list (`order.list`) and enhanced the order details widget (`order.details`) with live balance headers.
+- **Dedicated Balance Route**: Added `GET /admin/paystack/balance` endpoint with automatic fallback to store currency when Paystack returns empty balance arrays (`data: []`).
+- **Multi-Currency Smart Sorting**: Normalizes subunit currency amounts and prioritizes store currency and active positive funds ahead of zero balances.
+- **Comprehensive Automated Test Suite**: Expanded tests to 22 passing tests covering balance normalization, empty array handling, multi-currency sorting, exact reference matching, and sessionless unpaid order cron reconciliation.
+
+### Fixed
+- **Auto-Deduct & Capture Payments**: Webhook (`charge.success`) and verification (`/store/paystack/verify`) routes now execute explicit payment captures in Medusa, ensuring orders are automatically marked as paid.
+- **Cron Job Reconciliation**: Upgraded `sync-paystack-transactions` scheduled job to reconcile unpaid and partially paid orders with Paystack transaction references, capturing payments even for sessionless orders.
+- **Reconciliation Session Matching**: Partitioned session searching to guarantee exact Paystack transaction reference matching before falling back to unauthorized sessions.
+
+---
+
 ## [v1.1.10] - 2026-10-12
 
 ### Added

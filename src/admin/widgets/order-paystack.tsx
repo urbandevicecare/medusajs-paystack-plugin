@@ -1,7 +1,7 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { DetailWidgetProps, AdminOrder } from "@medusajs/framework/types"
 import { Container, Heading, Text, Button, Input, Label } from "@medusajs/ui"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 import Medusa from "@medusajs/js-sdk"
 
@@ -24,6 +24,24 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
   const [amount, setAmount] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [balanceInfo, setBalanceInfo] = useState<string | null>(null)
+
+  const currencyCode = (data as any)?.currency_code?.toUpperCase() || "KES";
+
+  useEffect(() => {
+    sdk.client.fetch(`/admin/paystack/balance`, { method: "GET" })
+      .then((res: any) => {
+        if (res?.data?.balance && res.data.balance.length > 0) {
+          const matched = res.data.balance.find(
+            (b: any) => (b.currency || "").toUpperCase() === currencyCode
+          ) || res.data.balance[0];
+          if (matched) {
+            setBalanceInfo(`${matched.currency} ${matched.formatted || (Number(matched.balance) / 100).toFixed(2)}`);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currencyCode]);
 
   const handleStkPush = async () => {
     if (!phone) return
@@ -61,8 +79,6 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
     }
   }
 
-  const currencyCode = (data as any)?.currency_code?.toUpperCase() || "KES"
-
   return (
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
@@ -72,6 +88,12 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
             Prompt customer for payment via M-Pesa / Mobile Money ({currencyCode}).
           </Text>
         </div>
+        {balanceInfo && (
+          <div className="text-right hidden sm:block">
+            <Text size="xsmall" className="text-ui-fg-subtle block">Paystack Live Balance</Text>
+            <Text size="small" className="font-semibold text-ui-fg-base">{balanceInfo}</Text>
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-y-4 px-6 py-4">
         {feedback && (
@@ -123,7 +145,7 @@ const OrderPaystackWidget = ({ data }: DetailWidgetProps<AdminOrder>) => {
 }
 
 export const config = defineWidgetConfig({
-  zone: "order.details.after",
+  zone: ["order.details", "order.details.after"],
 })
 
 export default OrderPaystackWidget

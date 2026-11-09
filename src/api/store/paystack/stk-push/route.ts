@@ -104,6 +104,34 @@ export async function POST(
     provider = "mtn";
   }
 
+  // Attempt to link a payment session on the order's payment collection
+  let sessionId: string | undefined;
+  try {
+    const paymentModule = req.scope.resolve(Modules.PAYMENT);
+    const { data: fullOrders } = await query.graph({
+      entity: "order",
+      fields: ["payment_collections.id", "payment_collections.status"],
+      filters: { id: order.id }
+    }).catch(() => ({ data: [] }));
+
+    const payCol = fullOrders?.[0]?.payment_collections?.[0];
+    if (payCol && paymentModule && typeof paymentModule.createPaymentSession === "function") {
+      const session = await paymentModule.createPaymentSession(payCol.id, {
+        provider_id: "paystack",
+        currency_code: currency.toLowerCase(),
+        amount: chargeAmount,
+        data: {
+          paystackTxRef: reference,
+          reference,
+        },
+      }).catch(() => null);
+
+      if (session?.id) {
+        sessionId = session.id;
+      }
+    }
+  } catch {}
+
   try {
     const payload = {
       email: customerEmail,
@@ -117,6 +145,7 @@ export async function POST(
       metadata: {
         order_id: order.id,
         stk_push: true,
+        ...(sessionId ? { session_id: sessionId } : {}),
       },
     };
 

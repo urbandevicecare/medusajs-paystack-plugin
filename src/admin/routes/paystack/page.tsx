@@ -17,18 +17,53 @@ const PaystackDashboard = () => {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [graphView, setGraphView] = useState<"dailyGraph" | "weeklyGraph" | "monthlyGraph" | "yearlyGraph">("monthlyGraph")
+  const [activeTab, setActiveTab] = useState<string>("analytics")
+  const [refreshingBalance, setRefreshingBalance] = useState(false)
 
   const [settings, setSettings] = useState({ companyName: "", storefrontUrl: "", secretKey: "" })
   const [saving, setSaving] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
 
-  useEffect(() => {
-    sdk.client.fetch(`/admin/paystack/dashboard`, { method: "GET" })
-      .then((res: any) => {
+  const loadDashboardData = async () => {
+    try {
+      const res: any = await sdk.client.fetch(`/admin/paystack/dashboard`, { method: "GET" })
+      if (res?.data) {
         setData(res.data)
-      })
-      .catch((e) => console.error("Failed to load dashboard data", e))
-      .finally(() => setLoading(false))
+      }
+    } catch (e) {
+      console.error("Failed to load dashboard data", e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRefreshBalance = async () => {
+    setRefreshingBalance(true)
+    try {
+      const res: any = await sdk.client.fetch(`/admin/paystack/balance`, { method: "GET" })
+      if (res?.data) {
+        setData((prev: any) => ({
+          ...prev,
+          balance: res.data.balance,
+          balanceError: res.data.balanceError,
+        }))
+        if (res.data.balanceError) {
+          toast.error(res.data.balanceError)
+        } else {
+          toast.success("Paystack balance updated")
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to refresh balance")
+      // Fallback to reloading full dashboard
+      await loadDashboardData()
+    } finally {
+      setRefreshingBalance(false)
+    }
+  }
+
+  useEffect(() => {
+    loadDashboardData()
 
     sdk.client.fetch(`/admin/paystack/settings`, { method: "GET" })
       .then((res: any) => {
@@ -48,6 +83,8 @@ const PaystackDashboard = () => {
         body: settings 
       })
       toast.success("Settings saved successfully")
+      // Reload dashboard data so live balance is re-fetched with the newly saved key
+      loadDashboardData()
     } catch (e) {
       toast.error("Failed to save settings")
       console.error(e)
@@ -58,7 +95,7 @@ const PaystackDashboard = () => {
 
   return (
     <div className="flex flex-col gap-y-4">
-      <Tabs defaultValue="analytics">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <Tabs.List className="mb-4">
           <Tabs.Trigger value="analytics">Analytics</Tabs.Trigger>
           <Tabs.Trigger value="settings">Settings</Tabs.Trigger>
@@ -74,19 +111,64 @@ const PaystackDashboard = () => {
               <Text size="small">Loading dashboard data...</Text>
             ) : (
               <div className="flex flex-col gap-y-8 mt-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                   <div className="p-4 border rounded-lg flex-1">
                     <Text size="small" className="text-ui-fg-subtle">Total Medusa Revenue</Text>
                     <Heading level="h2">{data?.totalRevenue != null ? Number(data.totalRevenue).toFixed(2) : "0.00"}</Heading>
                   </div>
-                  {data?.balance && data.balance.length > 0 && (
-                    <div className="p-4 border rounded-lg flex-1">
+
+                  <div className="p-4 border rounded-lg flex-1 flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
                       <Text size="small" className="text-ui-fg-subtle">Live Paystack Balance</Text>
-                      <Heading level="h2">
-                        {data.balance[0]?.currency} {data.balance[0]?.balance != null ? (Number(data.balance[0].balance) / 100).toFixed(2) : "0.00"}
-                      </Heading>
+                      <Button
+                        variant="transparent"
+                        size="small"
+                        onClick={handleRefreshBalance}
+                        isLoading={refreshingBalance}
+                        className="text-ui-fg-muted hover:text-ui-fg-base h-6 px-2 text-xs"
+                      >
+                        Refresh
+                      </Button>
                     </div>
-                  )}
+
+                    {data?.balance && data.balance.length > 0 ? (
+                      <div className="flex flex-wrap items-baseline gap-3 mt-1">
+                        <Heading level="h2">
+                          {data.balance[0].currency} {data.balance[0].formatted || (Number(data.balance[0].balance) / 100).toFixed(2)}
+                        </Heading>
+                        {data.balance.length > 1 && (
+                          <div className="flex flex-wrap gap-2">
+                            {data.balance.slice(1).map((b: any) => (
+                              <span
+                                key={b.currency}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-ui-bg-subtle text-ui-fg-subtle border border-ui-border-base"
+                              >
+                                {b.currency}: {b.formatted || (Number(b.balance) / 100).toFixed(2)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : data?.balanceError ? (
+                      <div className="flex flex-col gap-y-1 mt-1">
+                        <Text size="small" className="text-ui-fg-error">
+                          {data.balanceError}
+                        </Text>
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          className="w-fit text-xs mt-1"
+                          onClick={() => setActiveTab("settings")}
+                        >
+                          Configure in Settings
+                        </Button>
+                      </div>
+                    ) : (
+                      <Heading level="h2" className="text-ui-fg-muted mt-1">
+                        0.00
+                      </Heading>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-y-4">

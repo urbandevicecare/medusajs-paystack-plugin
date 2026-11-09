@@ -88,6 +88,34 @@ export async function POST(
     customerEmail = `guest-${order.id}@urbandevicecare.co.uk`;
   }
 
+  // Attempt to link a payment session on the order's payment collection
+  let sessionId: string | undefined;
+  try {
+    const paymentModule = req.scope.resolve(Modules.PAYMENT);
+    const { data: fullOrders } = await query.graph({
+      entity: "order",
+      fields: ["payment_collections.id", "payment_collections.status"],
+      filters: { id: order.id }
+    }).catch(() => ({ data: [] }));
+
+    const payCol = fullOrders?.[0]?.payment_collections?.[0];
+    if (payCol && paymentModule && typeof paymentModule.createPaymentSession === "function") {
+      const session = await paymentModule.createPaymentSession(payCol.id, {
+        provider_id: "paystack",
+        currency_code: currency.toLowerCase(),
+        amount: chargeAmount,
+        data: {
+          paystackTxRef: reference,
+          reference,
+        },
+      }).catch(() => null);
+
+      if (session?.id) {
+        sessionId = session.id;
+      }
+    }
+  } catch {}
+
   try {
     const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
@@ -103,6 +131,7 @@ export async function POST(
         metadata: {
           order_id: order.id,
           charge_amount: chargeAmount,
+          ...(sessionId ? { session_id: sessionId } : {}),
         },
       }),
     });

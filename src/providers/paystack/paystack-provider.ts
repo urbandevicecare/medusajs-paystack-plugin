@@ -30,7 +30,9 @@ import {
   PaymentSessionStatus,
   AbstractPaymentProvider,
   PaymentActions,
+  Modules,
 } from "@medusajs/framework/utils";
+import { reconcileAndCapturePaystackPayment } from "./utils/reconcile-payment";
 
 export type PaystackPaymentProviderSessionData = {
   paystackTxRef: string;
@@ -100,6 +102,13 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
         }).catch(() => ({ data: [] }));
         
         dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key;
+      }
+      if (!dynamicSecret && this.container) {
+        const storeService = (this.container as any).resolve ? (this.container as any).resolve(Modules.STORE) : null;
+        if (storeService && typeof storeService.listStores === "function") {
+          const stores = await storeService.listStores({}, { take: 1 });
+          dynamicSecret = stores?.[0]?.metadata?.paystack_secret_key;
+        }
       }
     } catch (err) {
       if (this.debug) console.warn("Failed to fetch dynamic paystack secret from store:", err);
@@ -246,7 +255,8 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     const client = await this.getClient();
 
     try {
-      const { paystackTxRef } = input.data as PaystackPaymentProviderSessionData;
+      const sessionData = (input.data || {}) as any;
+      const paystackTxRef = sessionData.paystackTxRef || sessionData.reference;
 
       if (!paystackTxRef) {
         throw new MedusaError(
@@ -508,16 +518,61 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
     const event = body.event;
     const eventData = body.data || {};
 
-    const sessionId = (eventData.metadata?.session_id as string) || undefined;
+    let sessionId = (eventData.metadata?.session_id as string) || undefined;
+    const orderId = (eventData.metadata?.order_id as string) || undefined;
+
+    if (!sessionId && orderId && this.container) {
+      try {
+        const query = (this.container as any).query;
+        if (query) {
+          const { data: sessions } = await query.graph({
+            entity: "payment_session",
+            fields: ["id", "provider_id", "data"],
+            filters: {
+              payment_collection: {
+                order: { id: orderId }
+              }
+            }
+          }).catch(() => ({ data: [] }));
+
+          const matched = sessions?.find((s: any) =>
+            s.provider_id?.includes("paystack") ||
+            s.data?.paystackTxRef === eventData.reference ||
+            s.data?.reference === eventData.reference
+          ) || sessions?.[0];
+
+          if (matched?.id) {
+            sessionId = matched.id;
+          }
+        }
+      } catch (err) {
+        if (this.debug) console.warn("PS_P_Debug: Error locating session for webhook order:", err);
+      }
+    }
+
+    const currency = eventData.currency || "NGN";
+    const medusaAmount = getMedusaAmount(Number(eventData.amount || 0), currency);
+
+    if (orderId && event === "charge.success" && this.container) {
+      try {
+        await reconcileAndCapturePaystackPayment({
+          container: this.container,
+          orderId,
+          reference: eventData.reference,
+          amount: medusaAmount,
+          currency,
+        });
+      } catch (err: any) {
+        if (this.debug) console.warn("PS_P_Debug: Error in webhook auto-reconcile:", err);
+      }
+    }
+
     if (!sessionId) {
       if (this.debug) console.warn("PS_P_Debug: Webhook event missing session_id in metadata");
       return {
         action: PaymentActions.NOT_SUPPORTED,
       };
     }
-
-    const currency = eventData.currency || "NGN";
-    const medusaAmount = getMedusaAmount(Number(eventData.amount || 0), currency);
 
     if (event === "charge.success") {
       console.info(`[Paystack Webhook] Received charge.success for reference: ${eventData.reference} (Session: ${sessionId})`);
