@@ -1,7 +1,7 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { resolvePaystackSecretKey, getMedusaAmount } from "../../../../providers/paystack/utils/currency";
-import { reconcileAndCapturePaystackPayment } from "../../../../providers/paystack/utils/reconcile-payment";
+import { reconcileAndCapturePaystackPayment, reconcilePaystackRepairPayment } from "../../../../providers/paystack/utils/reconcile-payment";
 
 export async function POST(
   req: MedusaRequest,
@@ -62,6 +62,8 @@ export async function POST(
 
     let reconcileResult: any = null;
     const orderId = txData.metadata?.order_id;
+    const ticketId = txData.metadata?.ticket_id || txData.metadata?.ticketId;
+    const isRepairTx = Boolean(ticketId || (txData.reference && String(txData.reference).startsWith("REP-")));
     const medusaAmount = getMedusaAmount(Number(txData.amount || 0), txData.currency);
 
     if (isSuccess && orderId) {
@@ -75,6 +77,19 @@ export async function POST(
         });
       } catch (err: any) {
         console.warn("[Paystack Verify] Error during auto-reconciliation:", err);
+      }
+    }
+
+    if (isSuccess && isRepairTx) {
+      try {
+        reconcileResult = await reconcilePaystackRepairPayment({
+          container: req.scope,
+          ticketId,
+          reference: txData.reference,
+          amount: medusaAmount,
+        });
+      } catch (err: any) {
+        console.warn("[Paystack Verify] Error during repair auto-reconciliation:", err);
       }
     }
 

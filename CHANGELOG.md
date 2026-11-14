@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.14] - 2026-11-14
+
+### Added
+- **Repair Ticket Auto-Payment & Reconciliation**: Added `reconcilePaystackRepairPayment` helper to seamlessly mark repair tickets (`medusajs-repairshop-plugin`) as paid (`payment_status: "captured"`, tag `Paid`, advance status, and emit `repair.payment_received` event). Supported across Webhooks, verify route, scheduled sync jobs, and dashboard queries.
+- **Default Success Status**: Set the default transaction status filter to **Success** so administrators see successful payments immediately upon loading the dashboard.
+- **100-Row Capping & Infinite Scroll**: Capped the maximum transaction rows at 100 and implemented smooth infinite scroll loading in increments of 20 items using `IntersectionObserver`.
+- **Order & Repair Badges**: The transactions table now clearly identifies and links both store orders (e.g., `#92`) and repair tickets (e.g., `Repair #101`).
+- **Expanded Test Suite**: Added automated tests for repair ticket auto-marking, dashboard repair matching, and 100-row capping (25 tests passing).
+
+---
+
 ## [v1.1.13] - 2026-11-14
 
 ### Added

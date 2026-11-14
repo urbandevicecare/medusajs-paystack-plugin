@@ -1,7 +1,7 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Text, Table, Select, Tabs, Button, Input, Label, Badge, StatusBadge, toast } from "@medusajs/ui"
 import { CreditCard } from "@medusajs/icons"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Medusa from "@medusajs/js-sdk"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
@@ -21,12 +21,15 @@ const PaystackDashboard = () => {
   const [refreshingBalance, setRefreshingBalance] = useState(false)
   const [refreshingTransactions, setRefreshingTransactions] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("success")
+  const [visibleCount, setVisibleCount] = useState(20)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const [settings, setSettings] = useState({ companyName: "", storefrontUrl: "", secretKey: "" })
   const [saving, setSaving] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
 
+  const MAX_ROWS = 100
   const allTransactions = (data?.transactions || data?.payments || []) as any[]
   const filteredTransactions = allTransactions.filter((tx: any) => {
     if (statusFilter !== "all" && (tx.status || "").toLowerCase() !== statusFilter) {
@@ -38,8 +41,36 @@ const PaystackDashboard = () => {
     const email = (tx.customer?.email || "").toLowerCase()
     const phone = (tx.customer?.phone || "").toLowerCase()
     const orderDisplay = String(tx.order?.display_id ?? tx.payment_collection?.order?.display_id ?? "").toLowerCase()
-    return ref.includes(q) || email.includes(q) || phone.includes(q) || orderDisplay.includes(q)
+    const repairTicket = String(tx.repair?.ticket_number || tx.repair?.id || "").toLowerCase()
+    return ref.includes(q) || email.includes(q) || phone.includes(q) || orderDisplay.includes(q) || repairTicket.includes(q)
   })
+
+  const cappedTransactions = filteredTransactions.slice(0, MAX_ROWS)
+  const visibleTransactions = cappedTransactions.slice(0, visibleCount)
+
+  useEffect(() => {
+    setVisibleCount(20)
+  }, [searchQuery, statusFilter, data])
+
+  useEffect(() => {
+    if (!loadMoreRef.current) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => {
+            if (prev < cappedTransactions.length) {
+              return Math.min(prev + 20, cappedTransactions.length)
+            }
+            return prev
+          })
+        }
+      },
+      { rootMargin: "120px" }
+    )
+
+    observer.observe(loadMoreRef.current)
+    return () => observer.disconnect()
+  }, [cappedTransactions.length])
 
   const loadDashboardData = async () => {
     try {
@@ -304,12 +335,22 @@ const PaystackDashboard = () => {
             </div>
 
             {!loading && filteredTransactions.length === 0 ? (
-              <div className="p-8 text-center">
+              <div className="p-8 text-center flex flex-col items-center">
                 <Text size="small" className="text-ui-fg-muted italic">
                   {searchQuery || statusFilter !== "all"
-                    ? "No transactions match your search or filter criteria."
+                    ? `No ${statusFilter !== "all" ? statusFilter : ""} transactions match your search or filter criteria.`
                     : "No transactions found on this Paystack account."}
                 </Text>
+                {statusFilter !== "all" && (
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    className="mt-3"
+                    onClick={() => setStatusFilter("all")}
+                  >
+                    View All Statuses
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -317,7 +358,7 @@ const PaystackDashboard = () => {
                   <Table.Header>
                     <Table.Row>
                       <Table.HeaderCell>Reference</Table.HeaderCell>
-                      <Table.HeaderCell>Order</Table.HeaderCell>
+                      <Table.HeaderCell>Order / Repair</Table.HeaderCell>
                       <Table.HeaderCell>Customer</Table.HeaderCell>
                       <Table.HeaderCell>Channel</Table.HeaderCell>
                       <Table.HeaderCell>Status</Table.HeaderCell>
@@ -326,9 +367,12 @@ const PaystackDashboard = () => {
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
-                    {filteredTransactions.slice(0, 50).map((tx: any) => {
+                    {visibleTransactions.map((tx: any) => {
                       const orderDisplayId = tx.order?.display_id ?? tx.payment_collection?.order?.display_id;
                       const orderId = tx.order?.id ?? tx.payment_collection?.order?.id;
+                      const repairTicketNumber = tx.repair?.ticket_number;
+                      const repairId = tx.repair?.id;
+
                       return (
                         <Table.Row key={tx.id || tx.reference}>
                           <Table.Cell>
@@ -337,12 +381,23 @@ const PaystackDashboard = () => {
                             </Text>
                           </Table.Cell>
                           <Table.Cell>
-                            {orderDisplayId != null ? (
+                            {repairTicketNumber ? (
+                              <a
+                                href={`/repairs/${repairId || ""}`}
+                                className="inline-flex items-center gap-1 font-medium text-sm text-ui-fg-interactive hover:underline"
+                              >
+                                <Badge color="blue" size="small">
+                                  Repair #{repairTicketNumber}
+                                </Badge>
+                              </a>
+                            ) : orderDisplayId != null ? (
                               <a
                                 href={`/orders/${orderId || ""}`}
-                                className="text-ui-fg-interactive hover:underline font-medium text-sm"
+                                className="inline-flex items-center gap-1 font-medium text-sm text-ui-fg-interactive hover:underline"
                               >
-                                #{orderDisplayId}
+                                <Badge color="grey" size="small">
+                                  #{orderDisplayId}
+                                </Badge>
                               </a>
                             ) : (
                               <Text size="xsmall" className="text-ui-fg-subtle italic">
@@ -397,6 +452,27 @@ const PaystackDashboard = () => {
                     })}
                   </Table.Body>
                 </Table>
+
+                {/* Infinite scroll sentinel & progress indicator */}
+                {visibleCount < cappedTransactions.length ? (
+                  <div ref={loadMoreRef} className="py-4 text-center border-t border-ui-border-base bg-ui-bg-subtle/40">
+                    <Text size="xsmall" className="text-ui-fg-muted animate-pulse font-medium">
+                      Loading more transactions ({visibleTransactions.length} of {cappedTransactions.length})...
+                    </Text>
+                  </div>
+                ) : cappedTransactions.length > 0 ? (
+                  <div className="py-3 px-6 bg-ui-bg-subtle border-t border-ui-border-base flex items-center justify-between text-ui-fg-subtle">
+                    <Text size="xsmall">
+                      Showing all {cappedTransactions.length} transaction{cappedTransactions.length === 1 ? "" : "s"}
+                      {filteredTransactions.length > MAX_ROWS ? ` (capped at top ${MAX_ROWS})` : ""}
+                    </Text>
+                    {filteredTransactions.length > MAX_ROWS && (
+                      <Text size="xsmall" className="italic text-ui-fg-muted">
+                        Capped at top 100 recent transactions
+                      </Text>
+                    )}
+                  </div>
+                ) : null}
               </div>
             )}
           </Container>

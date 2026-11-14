@@ -206,3 +206,177 @@ export async function reconcileAndCapturePaystackPayment({
     };
   }
 }
+
+export interface ReconcileRepairOptions {
+  container: any;
+  ticketId?: string;
+  ticketNumber?: string;
+  reference: string;
+  amount?: number; // In standard currency units (e.g. 1500 for KES 1500)
+}
+
+export interface ReconcileRepairResult {
+  success: boolean;
+  captured: boolean;
+  ticketId?: string;
+  ticketNumber?: string;
+  message: string;
+}
+
+/**
+ * Reconciles and captures a Paystack payment against a Medusa repair ticket (Repairshop plugin).
+ * Updates the ticket's payment_status to 'captured', advances ticket status, tags with 'Paid',
+ * and emits 'repair.payment_received' event.
+ */
+export async function reconcilePaystackRepairPayment({
+  container,
+  ticketId,
+  ticketNumber,
+  reference,
+  amount,
+}: ReconcileRepairOptions): Promise<ReconcileRepairResult> {
+  const logger = container?.resolve ? container.resolve("logger") : console;
+  let repairService: any = null;
+
+  try {
+    repairService = container?.resolve ? container.resolve("repair", { allowUnregistered: true }) : null;
+  } catch {}
+
+  if (!repairService) {
+    return {
+      success: false,
+      captured: false,
+      message: "Repair module not available in container",
+    };
+  }
+
+  try {
+    let tickets: any[] = [];
+    if (ticketId) {
+      tickets = await repairService.listRepairTickets({ id: ticketId });
+    } else if (ticketNumber) {
+      tickets = await repairService.listRepairTickets({ ticket_number: ticketNumber });
+    } else if (reference) {
+      // Common pattern: REP-<ticket_number>-<timestamp>
+      const match = reference.match(/^REP-([^-]+)/i);
+      if (match) {
+        tickets = await repairService.listRepairTickets({ ticket_number: match[1] });
+      }
+      if (!tickets?.length) {
+        tickets = await repairService.listRepairTickets({ ticket_number: reference });
+      }
+    }
+
+    if (!tickets || tickets.length === 0) {
+      return {
+        success: false,
+        captured: false,
+        message: `Repair ticket not found for reference ${reference}`,
+      };
+    }
+
+    const ticket = tickets[0];
+    const parseNum = (val: any) => {
+      if (!val) return 0;
+      if (typeof val === "object" && "value" in val) return Number(val.value);
+      return Number(val);
+    };
+
+    const totalEstimate = parseNum(ticket.total_estimate);
+    const totalActual = parseNum(ticket.total_actual);
+    const targetTotal = totalActual > 0 ? totalActual : totalEstimate;
+    const amountPaidSoFar = parseNum(ticket.amount_paid);
+
+    const paymentAmount = amount !== undefined && amount !== null && amount > 0
+      ? Number(amount)
+      : Math.max(0, targetTotal - amountPaidSoFar);
+
+    const newAmountPaid = amountPaidSoFar + paymentAmount;
+    const isFullyPaid = targetTotal > 0 ? newAmountPaid >= targetTotal : true;
+
+    if (ticket.payment_status === "captured" && isFullyPaid) {
+      return {
+        success: true,
+        captured: true,
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticket_number,
+        message: `Repair ticket ${ticket.ticket_number || ticket.id} is already marked as paid`,
+      };
+    }
+
+    let newStatus = ticket.status;
+    const existingMetadata = ticket.metadata || {};
+    const rawTags = existingMetadata.tags;
+    const existingTags = Array.isArray(rawTags)
+      ? [...rawTags]
+      : typeof rawTags === "string"
+        ? rawTags.split(",").map((t: string) => t.trim()).filter(Boolean)
+        : [];
+
+    if (isFullyPaid) {
+      if (!existingTags.includes("Paid")) {
+        existingTags.push("Paid");
+      }
+      if (ticket.status === "ready") {
+        newStatus = "collected";
+      } else if (ticket.status === "awaiting_approval") {
+        newStatus = "repairing";
+      }
+    }
+
+    const updatePayload: any = {
+      id: ticket.id,
+      amount_paid: newAmountPaid,
+      payment_status: isFullyPaid ? "captured" : "pending",
+      payment_collection_id: reference || ticket.payment_collection_id,
+      status: newStatus,
+      metadata: {
+        ...existingMetadata,
+        tags: existingTags,
+        paystack_reference: reference,
+      },
+    };
+
+    if (isFullyPaid && ticket.status === "ready") {
+      updatePayload.collected_at = new Date();
+    }
+
+    await repairService.updateRepairTickets(updatePayload);
+
+    // Emit event if eventBus is present
+    try {
+      const eventBus =
+        (container?.resolve && container.resolve("event_bus", { allowUnregistered: true })) ||
+        (container?.resolve && container.resolve("eventBus", { allowUnregistered: true }));
+      if (eventBus && typeof eventBus.emit === "function") {
+        await eventBus.emit({
+          name: "repair.payment_received",
+          data: {
+            id: ticket.id,
+            repair_ticket_id: ticket.id,
+            amount: paymentAmount,
+            reference,
+            payment_method: "Paystack",
+          },
+        });
+      }
+    } catch {}
+
+    logger.info?.(`[Paystack-Reconcile] Successfully marked repair ticket ${ticket.ticket_number || ticket.id} as paid (Reference: ${reference}).`);
+
+    return {
+      success: true,
+      captured: isFullyPaid,
+      ticketId: ticket.id,
+      ticketNumber: ticket.ticket_number,
+      message: `Repair ticket ${ticket.ticket_number || ticket.id} marked as ${isFullyPaid ? "paid/captured" : "partially paid"}`,
+    };
+  } catch (err: any) {
+    logger.error?.(`[Paystack-Reconcile] Error reconciling repair ticket: ${err.message}`);
+    return {
+      success: false,
+      captured: false,
+      message: err.message || "Failed to reconcile repair ticket",
+    };
+  }
+}

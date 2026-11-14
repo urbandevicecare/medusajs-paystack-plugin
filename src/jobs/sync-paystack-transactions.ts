@@ -1,6 +1,6 @@
 import { MedusaContainer } from "@medusajs/framework/types";
 import { Modules } from "@medusajs/framework/utils";
-import { reconcileAndCapturePaystackPayment } from "../providers/paystack/utils/reconcile-payment";
+import { reconcileAndCapturePaystackPayment, reconcilePaystackRepairPayment } from "../providers/paystack/utils/reconcile-payment";
 
 export default async function syncPaystackTransactions(
   containerOrArgs: any
@@ -157,6 +157,41 @@ export default async function syncPaystackTransactions(
       }
     } catch (orderSyncErr: any) {
       logger.debug?.(`[Paystack-Sync] Order reconciliation scan note: ${orderSyncErr.message}`);
+    }
+
+    // 3. Reconcile pending repair tickets with Paystack if repair module is present
+    try {
+      let repairService: any = null;
+      try {
+        repairService = container.resolve("repair", { allowUnregistered: true });
+      } catch {}
+
+      if (repairService && typeof repairService.listRepairTickets === "function") {
+        const pendingTickets = await repairService.listRepairTickets({
+          payment_status: "pending",
+        }).catch(() => []);
+
+        for (const ticket of (pendingTickets || [])) {
+          const ref = (ticket.metadata as any)?.paystack_reference || ticket.payment_collection_id;
+          if (ref) {
+            try {
+              const res = await reconcilePaystackRepairPayment({
+                container,
+                ticketId: ticket.id,
+                reference: ref,
+              });
+              if (res.captured) {
+                verifiedCount++;
+                logger.info(`[Paystack-Sync] Reconciled and marked repair ticket ${ticket.ticket_number || ticket.id} as paid (ref: ${ref})`);
+              }
+            } catch (ticketErr: any) {
+              logger.debug?.(`[Paystack-Sync] Note reconciling repair ticket ${ticket.id}: ${ticketErr.message}`);
+            }
+          }
+        }
+      }
+    } catch (repairSyncErr: any) {
+      logger.debug?.(`[Paystack-Sync] Repair ticket scan note: ${repairSyncErr.message}`);
     }
 
     logger.info(`Paystack sync complete. Captured/reconciled ${verifiedCount} payment(s).`);

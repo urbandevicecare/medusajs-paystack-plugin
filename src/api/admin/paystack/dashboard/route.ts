@@ -6,7 +6,7 @@ import {
   normalizePaystackBalances,
   getMedusaAmount,
 } from "../../../../providers/paystack/utils/currency";
-import { reconcileAndCapturePaystackPayment } from "../../../../providers/paystack/utils/reconcile-payment";
+import { reconcileAndCapturePaystackPayment, reconcilePaystackRepairPayment } from "../../../../providers/paystack/utils/reconcile-payment";
 
 export async function GET(
   req: MedusaRequest,
@@ -130,6 +130,25 @@ export async function GET(
       });
     });
 
+    // Resolve repair tickets if repairshop module is installed
+    let repairService: any = null;
+    let repairTickets: any[] = [];
+    try {
+      repairService = req.scope.resolve("repair", { allowUnregistered: true });
+      if (repairService && typeof repairService.listRepairTickets === "function") {
+        repairTickets = await repairService.listRepairTickets({}, { take: 100 }).catch(() => []);
+      }
+    } catch {}
+
+    const repairById = new Map<string, any>();
+    const repairByTicketNumber = new Map<string, any>();
+    for (const t of (repairTickets || [])) {
+      if (t.id) repairById.set(t.id, t);
+      if (t.ticket_number) {
+        repairByTicketNumber.set(String(t.ticket_number).toLowerCase(), t);
+      }
+    }
+
     // 3. Query Paystack balance and live transactions
     let balance: any = null;
     let balanceError: string | null = null;
@@ -152,9 +171,9 @@ export async function GET(
         balanceError = err?.response?.data?.message || err.message || "Could not connect to Paystack";
       }
 
-      // Fetch live transactions directly from Paystack API
+      // Fetch live transactions directly from Paystack API (capped at 100)
       try {
-        const txRes = await client.transaction.list({ perPage: 50 });
+        const txRes = await client.transaction.list({ perPage: 100 });
         if (txRes && txRes.status && Array.isArray(txRes.data)) {
           rawPaystackTransactions = txRes.data;
         } else if (txRes && !txRes.status) {
@@ -208,6 +227,20 @@ export async function GET(
         }
       }
 
+      // Match with Repair ticket if applicable
+      let matchedRepair: any = null;
+      const ticketId = meta.ticket_id || meta.ticketId;
+      if (ticketId && repairById.has(ticketId)) {
+        matchedRepair = repairById.get(ticketId);
+      } else if (txRef) {
+        const match = txRef.match(/^REP-([^-]+)/i);
+        if (match && repairByTicketNumber.has(match[1].toLowerCase())) {
+          matchedRepair = repairByTicketNumber.get(match[1].toLowerCase());
+        } else if (repairByTicketNumber.has(txRef.toLowerCase())) {
+          matchedRepair = repairByTicketNumber.get(txRef.toLowerCase());
+        }
+      }
+
       const txCurrency = (tx.currency || storeCurrency).toUpperCase();
       const standardAmount = getMedusaAmount(Number(tx.amount || 0), txCurrency);
 
@@ -227,6 +260,20 @@ export async function GET(
           } catch (reconErr: any) {
             console.debug?.("Dashboard auto-reconcile note:", reconErr?.message);
           }
+        }
+      }
+
+      // Auto-reconcile unpaid repair ticket if Paystack payment succeeded
+      if (matchedRepair && tx.status === "success" && matchedRepair.payment_status !== "captured") {
+        try {
+          await reconcilePaystackRepairPayment({
+            container: req.scope,
+            ticketId: matchedRepair.id,
+            reference: tx.reference,
+            amount: standardAmount,
+          });
+        } catch (repairErr: any) {
+          console.debug?.("Dashboard repair auto-reconcile note:", repairErr?.message);
         }
       }
 
@@ -256,6 +303,10 @@ export async function GET(
             id: matchedOrder.id,
             display_id: matchedOrder.display_id,
           }
+        } : null,
+        repair: matchedRepair ? {
+          id: matchedRepair.id,
+          ticket_number: matchedRepair.ticket_number,
         } : null,
         source: "paystack",
       });
@@ -386,11 +437,13 @@ export async function GET(
     const monthlyGraph = Array.from(monthlyDataMap.entries()).map(([name, total]) => ({ name, total }));
     const yearlyGraph = Array.from(yearlyDataMap.entries()).map(([name, total]) => ({ name, total }));
 
+    const cappedTransactions = normalizedTransactions.slice(0, 100);
+
     res.status(200).json({
       success: true,
       data: {
-        transactions: normalizedTransactions,
-        payments: normalizedTransactions, // Backwards-compatible
+        transactions: cappedTransactions,
+        payments: cappedTransactions, // Backwards-compatible
         totalRevenue,
         dailyGraph,
         weeklyGraph,

@@ -32,7 +32,7 @@ import {
   PaymentActions,
   Modules,
 } from "@medusajs/framework/utils";
-import { reconcileAndCapturePaystackPayment } from "./utils/reconcile-payment";
+import { reconcileAndCapturePaystackPayment, reconcilePaystackRepairPayment } from "./utils/reconcile-payment";
 
 export type PaystackPaymentProviderSessionData = {
   paystackTxRef: string;
@@ -552,23 +552,41 @@ class PaystackPaymentProvider extends AbstractPaymentProvider<PaystackPaymentPro
 
     const currency = eventData.currency || "NGN";
     const medusaAmount = getMedusaAmount(Number(eventData.amount || 0), currency);
+    const ticketId = (eventData.metadata?.ticket_id as string) || (eventData.metadata?.ticketId as string) || undefined;
+    const ref = (eventData.reference as string) || "";
+    const isRepairTx = Boolean(ticketId || ref.startsWith("REP-") || ref.startsWith("rep-"));
 
-    if (orderId && event === "charge.success" && this.container) {
-      try {
-        await reconcileAndCapturePaystackPayment({
-          container: this.container,
-          orderId,
-          reference: eventData.reference,
-          amount: medusaAmount,
-          currency,
-        });
-      } catch (err: any) {
-        if (this.debug) console.warn("PS_P_Debug: Error in webhook auto-reconcile:", err);
+    if (event === "charge.success" && this.container) {
+      if (orderId) {
+        try {
+          await reconcileAndCapturePaystackPayment({
+            container: this.container,
+            orderId,
+            reference: eventData.reference,
+            amount: medusaAmount,
+            currency,
+          });
+        } catch (err: any) {
+          if (this.debug) console.warn("PS_P_Debug: Error in webhook auto-reconcile:", err);
+        }
+      }
+
+      if (isRepairTx) {
+        try {
+          await reconcilePaystackRepairPayment({
+            container: this.container,
+            ticketId,
+            reference: eventData.reference,
+            amount: medusaAmount,
+          });
+        } catch (err: any) {
+          if (this.debug) console.warn("PS_P_Debug: Error in repair webhook auto-reconcile:", err);
+        }
       }
     }
 
     if (!sessionId) {
-      if (this.debug) console.warn("PS_P_Debug: Webhook event missing session_id in metadata");
+      if (this.debug && !isRepairTx) console.warn("PS_P_Debug: Webhook event missing session_id in metadata");
       return {
         action: PaymentActions.NOT_SUPPORTED,
       };

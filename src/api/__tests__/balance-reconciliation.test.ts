@@ -1022,3 +1022,171 @@ test("Cron Job Reconciliation - captures sessionless unpaid order with metadata 
   assert.strictEqual(authorizedSessionId, "payses_newly_created");
 });
 
+test("reconcilePaystackRepairPayment - auto marks repair ticket as paid, updates status and tags", async () => {
+  const { reconcilePaystackRepairPayment } = await import(
+    "../../providers/paystack/utils/reconcile-payment"
+  );
+
+  let updatedPayload: any = null;
+  let emittedEvent: any = null;
+
+  const mockContainer = {
+    resolve(key: string) {
+      if (key === "repair") {
+        return {
+          listRepairTickets: async (filters: any) => {
+            if (filters.id === "ticket_1" || filters.ticket_number === "101") {
+              return [
+                {
+                  id: "ticket_1",
+                  ticket_number: "101",
+                  status: "ready",
+                  payment_status: "pending",
+                  total_estimate: 2500,
+                  total_actual: 2500,
+                  amount_paid: 0,
+                  metadata: {
+                    tags: ["Screen Repair"],
+                  },
+                },
+              ];
+            }
+            return [];
+          },
+          updateRepairTickets: async (payload: any) => {
+            updatedPayload = payload;
+            return payload;
+          },
+        };
+      }
+      if (key === "event_bus" || key === "eventBus") {
+        return {
+          emit: async (event: any) => {
+            emittedEvent = event;
+          },
+        };
+      }
+      if (key === "logger") {
+        return { info: () => {}, warn: () => {}, error: () => {} };
+      }
+      return {};
+    },
+  };
+
+  const result = await reconcilePaystackRepairPayment({
+    container: mockContainer,
+    reference: "REP-101-1793784000000",
+    amount: 2500,
+  });
+
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.captured, true);
+  assert.strictEqual(result.ticketNumber, "101");
+
+  // Verify ticket was updated to captured, tags include Paid, and status advanced to collected
+  assert.ok(updatedPayload);
+  assert.strictEqual(updatedPayload.payment_status, "captured");
+  assert.strictEqual(updatedPayload.amount_paid, 2500);
+  assert.strictEqual(updatedPayload.status, "collected");
+  assert.ok(updatedPayload.metadata.tags.includes("Paid"));
+  assert.ok(updatedPayload.collected_at instanceof Date);
+
+  // Verify event emitted
+  assert.ok(emittedEvent);
+  assert.strictEqual(emittedEvent.name, "repair.payment_received");
+  assert.strictEqual(emittedEvent.data.amount, 2500);
+});
+
+test("Dashboard Route - caps transactions at 100 and maps repair tickets", async () => {
+  const { GET } = await import("../admin/paystack/dashboard/route");
+
+  // Generate 120 mock transactions from Paystack
+  const mock120Transactions = Array.from({ length: 120 }, (_, i) => ({
+    id: 1000 + i,
+    reference: i === 0 ? "REP-101-1793784000" : `TX_REF_${i}`,
+    amount: 50000, // 500 KES
+    currency: "KES",
+    status: "success",
+    channel: "mobile_money",
+    paid_at: new Date(Date.now() - i * 60000).toISOString(),
+    created_at: new Date(Date.now() - i * 60000).toISOString(),
+    customer: { email: `customer${i}@example.com` },
+  }));
+
+  const originalCreate = axios.create;
+  (axios as any).create = () => ({
+    get: async (url: string) => {
+      if (url === "/balance") {
+        return {
+          data: {
+            status: true,
+            data: [{ currency: "KES", balance: 500000 }],
+          },
+        };
+      }
+      if (url === "/transaction") {
+        return {
+          data: {
+            status: true,
+            message: "Transactions retrieved",
+            data: mock120Transactions,
+          },
+        };
+      }
+      return { data: {} };
+    },
+    post: async () => ({ data: {} }),
+  });
+
+  try {
+    const mockReq = {
+      scope: {
+        resolve: (key: string) => {
+          if (key === "repair") {
+            return {
+              listRepairTickets: async () => [
+                {
+                  id: "ticket_1",
+                  ticket_number: "101",
+                  payment_status: "pending",
+                },
+              ],
+              updateRepairTickets: async () => ({}),
+            };
+          }
+          if (key === "query") {
+            return {
+              graph: async () => ({
+                data: [{ metadata: { paystack_secret_key: "sk_test_key" }, default_currency_code: "kes" }],
+              }),
+            };
+          }
+          if (key === "logger") {
+            return { info: () => {}, warn: () => {}, error: () => {} };
+          }
+          return {};
+        },
+      },
+    };
+
+    let responseData: any = null;
+    const mockRes = {
+      status: () => mockRes,
+      json: (d: any) => {
+        responseData = d;
+      },
+    };
+
+    await GET(mockReq as any, mockRes as any);
+
+    assert.ok(responseData.success);
+    // Verified: Capped at exactly 100 transactions!
+    assert.strictEqual(responseData.data.transactions.length, 100);
+    // Verified: First transaction matches repair ticket 101!
+    assert.strictEqual(responseData.data.transactions[0].repair?.ticket_number, "101");
+  } finally {
+    axios.create = originalCreate;
+  }
+});
+
+
