@@ -1,5 +1,5 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Container, Heading, Text, Table, Select, Tabs, Button, Input, Label, toast } from "@medusajs/ui"
+import { Container, Heading, Text, Table, Select, Tabs, Button, Input, Label, Badge, StatusBadge, toast } from "@medusajs/ui"
 import { CreditCard } from "@medusajs/icons"
 import { useState, useEffect } from "react"
 import Medusa from "@medusajs/js-sdk"
@@ -19,10 +19,27 @@ const PaystackDashboard = () => {
   const [graphView, setGraphView] = useState<"dailyGraph" | "weeklyGraph" | "monthlyGraph" | "yearlyGraph">("monthlyGraph")
   const [activeTab, setActiveTab] = useState<string>("analytics")
   const [refreshingBalance, setRefreshingBalance] = useState(false)
+  const [refreshingTransactions, setRefreshingTransactions] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
 
   const [settings, setSettings] = useState({ companyName: "", storefrontUrl: "", secretKey: "" })
   const [saving, setSaving] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
+
+  const allTransactions = (data?.transactions || data?.payments || []) as any[]
+  const filteredTransactions = allTransactions.filter((tx: any) => {
+    if (statusFilter !== "all" && (tx.status || "").toLowerCase() !== statusFilter) {
+      return false
+    }
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase().trim()
+    const ref = (tx.reference || tx.id || "").toLowerCase()
+    const email = (tx.customer?.email || "").toLowerCase()
+    const phone = (tx.customer?.phone || "").toLowerCase()
+    const orderDisplay = String(tx.order?.display_id ?? tx.payment_collection?.order?.display_id ?? "").toLowerCase()
+    return ref.includes(q) || email.includes(q) || phone.includes(q) || orderDisplay.includes(q)
+  })
 
   const loadDashboardData = async () => {
     try {
@@ -61,6 +78,20 @@ const PaystackDashboard = () => {
       setRefreshingBalance(false)
     }
   }
+
+  const handleRefreshTransactions = async () => {
+    setRefreshingTransactions(true)
+    try {
+      await loadDashboardData()
+      toast.success("Paystack transactions refreshed")
+    } catch {
+      toast.error("Failed to refresh transactions")
+    } finally {
+      setRefreshingTransactions(false)
+    }
+  }
+
+  const transactions = data?.transactions || data?.payments || []
 
   useEffect(() => {
     loadDashboardData()
@@ -113,7 +144,7 @@ const PaystackDashboard = () => {
               <div className="flex flex-col gap-y-8 mt-4">
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="p-4 border rounded-lg flex-1">
-                    <Text size="small" className="text-ui-fg-subtle">Total Medusa Revenue</Text>
+                    <Text size="small" className="text-ui-fg-subtle">Total Paystack Revenue</Text>
                     <Heading level="h2">{data?.totalRevenue != null ? Number(data.totalRevenue).toFixed(2) : "0.00"}</Heading>
                   </div>
 
@@ -210,33 +241,163 @@ const PaystackDashboard = () => {
             )}
           </Container>
           <Container className="p-0">
-            <div className="p-6">
-              <Heading level="h2" className="mb-4">Recent Transactions</Heading>
-              {!loading && data?.payments?.length === 0 && (
-                <Text size="small" className="text-ui-fg-muted italic">
-                  No recent transactions found.
+            <div className="p-6 border-b border-ui-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <Heading level="h2">Recent Transactions</Heading>
+                <Text size="small" className="text-ui-fg-subtle mt-0.5">
+                  Live payments processed via Paystack (synced with Medusa orders & Mobile Money).
                 </Text>
-              )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="small"
+                  onClick={async () => {
+                    setRefreshingTransactions(true);
+                    await loadDashboardData();
+                    setRefreshingTransactions(false);
+                    toast.success("Transactions refreshed");
+                  }}
+                  isLoading={refreshingTransactions}
+                >
+                  Refresh Transactions
+                </Button>
+              </div>
             </div>
-            {!loading && data?.payments?.length > 0 && (
-              <Table>
-                <Table.Header>
-                  <Table.Row>
-                    <Table.HeaderCell>Order</Table.HeaderCell>
-                    <Table.HeaderCell>Amount</Table.HeaderCell>
-                    <Table.HeaderCell>Date</Table.HeaderCell>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {data.payments.slice(0, 10).map((payment: any) => (
-                    <Table.Row key={payment.id}>
-                      <Table.Cell>#{payment.payment_collection?.order?.display_id || "N/A"}</Table.Cell>
-                      <Table.Cell>{Number(payment.amount).toFixed(2)} {payment.currency_code?.toUpperCase()}</Table.Cell>
-                      <Table.Cell>{new Date(payment.created_at).toLocaleDateString()}</Table.Cell>
+
+            {data?.transactionsError && (
+              <div className="p-4 m-6 rounded-md bg-ui-bg-error-subtle border border-ui-border-error flex items-center justify-between">
+                <Text size="small" className="text-ui-fg-error">
+                  Paystack Notice: {data.transactionsError}
+                </Text>
+                <Button variant="secondary" size="small" onClick={() => setActiveTab("settings")}>
+                  Check Settings
+                </Button>
+              </div>
+            )}
+
+            <div className="px-6 py-3 border-b border-ui-border-base bg-ui-bg-subtle flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex-1 max-w-sm">
+                <Input
+                  placeholder="Search reference, email, phone, or order #"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  size="small"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Text size="xsmall" className="text-ui-fg-subtle whitespace-nowrap">Filter Status:</Text>
+                <div className="w-[130px]">
+                  <Select value={statusFilter} onValueChange={(val: any) => setStatusFilter(val)}>
+                    <Select.Trigger size="small">
+                      <Select.Value />
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Item value="all">All Statuses</Select.Item>
+                      <Select.Item value="success">Success</Select.Item>
+                      <Select.Item value="failed">Failed</Select.Item>
+                      <Select.Item value="abandoned">Abandoned</Select.Item>
+                    </Select.Content>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {!loading && filteredTransactions.length === 0 ? (
+              <div className="p-8 text-center">
+                <Text size="small" className="text-ui-fg-muted italic">
+                  {searchQuery || statusFilter !== "all"
+                    ? "No transactions match your search or filter criteria."
+                    : "No transactions found on this Paystack account."}
+                </Text>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.HeaderCell>Reference</Table.HeaderCell>
+                      <Table.HeaderCell>Order</Table.HeaderCell>
+                      <Table.HeaderCell>Customer</Table.HeaderCell>
+                      <Table.HeaderCell>Channel</Table.HeaderCell>
+                      <Table.HeaderCell>Status</Table.HeaderCell>
+                      <Table.HeaderCell className="text-right">Amount</Table.HeaderCell>
+                      <Table.HeaderCell className="text-right">Date</Table.HeaderCell>
                     </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
+                  </Table.Header>
+                  <Table.Body>
+                    {filteredTransactions.slice(0, 50).map((tx: any) => {
+                      const orderDisplayId = tx.order?.display_id ?? tx.payment_collection?.order?.display_id;
+                      const orderId = tx.order?.id ?? tx.payment_collection?.order?.id;
+                      return (
+                        <Table.Row key={tx.id || tx.reference}>
+                          <Table.Cell>
+                            <Text size="small" className="font-mono text-ui-fg-base font-medium">
+                              {tx.reference || tx.id}
+                            </Text>
+                          </Table.Cell>
+                          <Table.Cell>
+                            {orderDisplayId != null ? (
+                              <a
+                                href={`/orders/${orderId || ""}`}
+                                className="text-ui-fg-interactive hover:underline font-medium text-sm"
+                              >
+                                #{orderDisplayId}
+                              </a>
+                            ) : (
+                              <Text size="xsmall" className="text-ui-fg-subtle italic">
+                                Direct / Standalone
+                              </Text>
+                            )}
+                          </Table.Cell>
+                          <Table.Cell>
+                            <div className="flex flex-col">
+                              <Text size="small" className="text-ui-fg-base font-medium truncate max-w-[180px]">
+                                {tx.customer?.email || tx.customer?.name || "—"}
+                              </Text>
+                              {tx.customer?.phone && (
+                                <Text size="xsmall" className="text-ui-fg-subtle">
+                                  {tx.customer.phone}
+                                </Text>
+                              )}
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell>
+                            <span className="text-xs font-medium text-ui-fg-subtle capitalize">
+                              {tx.channel === "mobile_money"
+                                ? "M-Pesa / Mobile Money"
+                                : tx.channel === "card"
+                                ? "Card"
+                                : tx.channel === "bank_transfer"
+                                ? "Bank Transfer"
+                                : tx.channel || "Paystack"}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell>
+                            {tx.status === "success" ? (
+                              <Badge color="green" size="small">Success</Badge>
+                            ) : tx.status === "failed" ? (
+                              <Badge color="red" size="small">Failed</Badge>
+                            ) : (
+                              <Badge color="grey" size="small">{tx.status || "Pending"}</Badge>
+                            )}
+                          </Table.Cell>
+                          <Table.Cell className="text-right">
+                            <Text size="small" className="font-semibold text-ui-fg-base">
+                              {tx.currency_code?.toUpperCase()} {Number(tx.amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </Text>
+                          </Table.Cell>
+                          <Table.Cell className="text-right">
+                            <Text size="xsmall" className="text-ui-fg-subtle whitespace-nowrap">
+                              {tx.created_at ? new Date(tx.created_at).toLocaleString() : "—"}
+                            </Text>
+                          </Table.Cell>
+                        </Table.Row>
+                      );
+                    })}
+                  </Table.Body>
+                </Table>
+              </div>
             )}
           </Container>
         </Tabs.Content>

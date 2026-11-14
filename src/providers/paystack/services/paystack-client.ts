@@ -18,6 +18,16 @@ export interface RefundPaymentOptions {
   amount?: number;
 }
 
+export interface ListTransactionsOptions {
+  perPage?: number;
+  page?: number;
+  customer?: number;
+  status?: "failed" | "success" | "abandoned" | string;
+  from?: string;
+  to?: string;
+  amount?: number;
+}
+
 export interface GetTransactionOptions {
   id: string | number;
 }
@@ -62,6 +72,10 @@ export default class PaystackClient {
     },
     get: async ({ id }: GetTransactionOptions) => {
       const response = await this.axios.get(`/transaction/${id}`);
+      return response.data;
+    },
+    list: async (params?: ListTransactionsOptions) => {
+      const response = await this.axios.get("/transaction", { params });
       return response.data;
     },
   };

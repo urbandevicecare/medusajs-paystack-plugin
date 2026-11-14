@@ -33,7 +33,8 @@ export async function reconcileAndCapturePaystackPayment({
   
   let paymentModule: any = null;
   try {
-    paymentModule = container?.resolve ? container.resolve(Modules.PAYMENT) : null;
+    const paymentKey = typeof Modules !== "undefined" && Modules?.PAYMENT ? Modules.PAYMENT : "payment";
+    paymentModule = container?.resolve ? container.resolve(paymentKey) : null;
   } catch {
     try {
       paymentModule = container?.resolve ? container.resolve("payment") : null;

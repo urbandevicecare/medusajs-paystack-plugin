@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.1.13] - 2026-11-14
+
+### Added
+- **Live Paystack Transaction Fetching**: Added `transaction.list()` to `PaystackClient` and updated the `/admin/paystack/dashboard` endpoint to query Paystack's live `/transaction` API directly. This guarantees all payments—including Mobile Money STK pushes and direct Paystack charges—are visible even before internal Medusa payment records exist.
+- **Enhanced Admin Transactions Table**: Overhauled the Recent Transactions table in the Paystack admin view (`/app/paystack`) with real-time search, status filtering (All / Success / Failed / Abandoned / Pending), manual refresh button, order link badges, customer email & phone numbers, and payment channel indicators (M-Pesa / Mobile Money, Card, Bank).
+- **Auto-Reconciliation of Paystack Transactions**: Automatically links live Paystack transaction references (such as `STK-92-...`) to their corresponding Medusa orders (`#92`) and captures payments to mark orders as paid.
+- **Automated Test Coverage**: Added tests for live Paystack transaction querying, subunit conversion, and Medusa payment reconciliation in `src/api/__tests__/balance-reconciliation.test.ts`.
+
+### Fixed
+- **Reconciliation Module Resolution**: Guarded `Modules.PAYMENT` with fallback to `"payment"` to prevent `ReferenceError: Modules is not defined` in varied Medusa v2 container environments.
+
+---
+
 ## [v1.1.12] - 2026-11-09
 
 ### Added

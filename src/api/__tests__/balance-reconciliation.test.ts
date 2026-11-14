@@ -212,6 +212,134 @@ test("Dashboard Route - includes normalized balance and revenue graphs", async (
   }
 });
 
+test("Dashboard Route - retrieves transactions from Paystack API and merges with Medusa", async () => {
+  const originalCreate = axios.create;
+  (axios as any).create = () => ({
+    get: async (url: string) => {
+      if (url === "/balance") {
+        return {
+          data: {
+            status: true,
+            data: [{ currency: "KES", balance: 60000 }],
+          },
+        };
+      }
+      if (url === "/transaction") {
+        return {
+          data: {
+            status: true,
+            message: "Transactions retrieved",
+            data: [
+              {
+                id: 6728589635,
+                reference: "STK-92-1793784794987",
+                amount: 10000,
+                currency: "KES",
+                status: "success",
+                channel: "mobile_money",
+                customer: { email: "customer@example.com", phone: "+254700000000" },
+                created_at: "2026-11-14T06:30:00.000Z",
+              },
+              {
+                id: 6728561400,
+                reference: "STK-92-1793784288882",
+                amount: 50000,
+                currency: "KES",
+                status: "success",
+                channel: "mobile_money",
+                customer: { email: "customer@example.com" },
+                created_at: "2026-11-14T06:15:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return { data: {} };
+    },
+    post: async () => ({ data: {} }),
+  });
+
+  try {
+    const req: any = {
+      scope: {
+        resolve(key: string) {
+          if (key === "query") {
+            return {
+              graph: async ({ entity }: any) => {
+                if (entity === "store") {
+                  return {
+                    data: [{ metadata: { paystack_secret_key: "sk_test_tx_test" } }],
+                  };
+                }
+                if (entity === "order") {
+                  return {
+                    data: [
+                      {
+                        id: "order_92",
+                        display_id: 92,
+                        email: "customer@example.com",
+                        total: 600,
+                        payment_collections: [{ id: "pay_col_92", status: "not_paid" }],
+                      },
+                    ],
+                  };
+                }
+                return { data: [] };
+              },
+            };
+          }
+          if (key === "payment" || key === Modules.PAYMENT) {
+            return {
+              createPaymentSession: async () => ({ id: "payses_auto_92" }),
+              authorizePaymentSession: async () => ({ id: "pay_auto_92", captured_at: new Date() }),
+              capturePayment: async () => ({ id: "pay_auto_92", captured_at: new Date() }),
+            };
+          }
+          return {};
+        },
+      },
+    };
+
+    let statusCode = 0;
+    let jsonResponse: any = null;
+    const res: any = {
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      json(data: any) {
+        jsonResponse = data;
+        return this;
+      },
+    };
+
+    await getDashboard(req, res);
+    assert.strictEqual(statusCode, 200);
+    assert.strictEqual(jsonResponse.success, true);
+    assert.ok(Array.isArray(jsonResponse.data.transactions));
+    assert.strictEqual(jsonResponse.data.transactions.length, 2);
+
+    const firstTx = jsonResponse.data.transactions[0];
+    assert.strictEqual(firstTx.reference, "STK-92-1793784794987");
+    assert.strictEqual(firstTx.amount, 100); // 10000 subunits / 100
+    assert.strictEqual(firstTx.currency_code, "KES");
+    assert.strictEqual(firstTx.channel, "mobile_money");
+    assert.strictEqual(firstTx.status, "success");
+    assert.strictEqual(firstTx.order.display_id, 92);
+    assert.strictEqual(firstTx.order.id, "order_92");
+
+    const secondTx = jsonResponse.data.transactions[1];
+    assert.strictEqual(secondTx.reference, "STK-92-1793784288882");
+    assert.strictEqual(secondTx.amount, 500); // 50000 subunits / 100
+    assert.strictEqual(secondTx.channel, "mobile_money");
+
+    // Total revenue calculation includes both transactions
+    assert.strictEqual(jsonResponse.data.totalRevenue, 600);
+  } finally {
+    axios.create = originalCreate;
+  }
+});
+
 test("Auto-Deduct / Mark As Paid via Verify Route", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string | URL | Request) => {
