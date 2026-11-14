@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework/types";
 import { Modules } from "@medusajs/framework/utils";
 import { reconcileAndCapturePaystackPayment, reconcilePaystackRepairPayment } from "../providers/paystack/utils/reconcile-payment";
+import { resolvePaystackSecretKey, getMedusaAmount } from "../providers/paystack/utils/currency";
 
 export default async function syncPaystackTransactions(
   containerOrArgs: any
@@ -159,33 +160,76 @@ export default async function syncPaystackTransactions(
       logger.debug?.(`[Paystack-Sync] Order reconciliation scan note: ${orderSyncErr.message}`);
     }
 
-    // 3. Reconcile pending repair tickets with Paystack if repair module is present
+    // 3. Reconcile pending repair tickets with Paystack if repair module is present and secretKey is configured
     try {
+      let dynamicSecret = "";
+      try {
+        const { data: stores } = await query.graph({
+          entity: "store",
+          fields: ["metadata"],
+        }).catch(() => ({ data: [] }));
+        dynamicSecret = (stores?.[0]?.metadata?.paystack_secret_key as string) || "";
+      } catch {}
+
+      const secretKey = resolvePaystackSecretKey(dynamicSecret);
+
       let repairService: any = null;
       try {
         repairService = container.resolve("repair", { allowUnregistered: true });
       } catch {}
 
-      if (repairService && typeof repairService.listRepairTickets === "function") {
+      if (repairService && typeof repairService.listRepairTickets === "function" && secretKey) {
         const pendingTickets = await repairService.listRepairTickets({
           payment_status: "pending",
         }).catch(() => []);
 
         for (const ticket of (pendingTickets || [])) {
-          const ref = (ticket.metadata as any)?.paystack_reference || ticket.payment_collection_id;
-          if (ref) {
+          const rawRef = (ticket.metadata as any)?.paystack_reference;
+          // Only attempt verification on valid Paystack references (never internal Medusa IDs like pay_col_...)
+          if (
+            rawRef &&
+            typeof rawRef === "string" &&
+            !rawRef.startsWith("pay_col_") &&
+            !rawRef.startsWith("payses_")
+          ) {
             try {
-              const res = await reconcilePaystackRepairPayment({
-                container,
-                ticketId: ticket.id,
-                reference: ref,
-              });
-              if (res.captured) {
-                verifiedCount++;
-                logger.info(`[Paystack-Sync] Reconciled and marked repair ticket ${ticket.ticket_number || ticket.id} as paid (ref: ${ref})`);
+              const verifyRes = await fetch(
+                `https://api.paystack.co/transaction/verify/${encodeURIComponent(rawRef)}`,
+                {
+                  method: "GET",
+                  headers: {
+                    Authorization: `Bearer ${secretKey}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+
+              if (verifyRes.ok) {
+                const verifyData = await verifyRes.json();
+                if (verifyData.status && verifyData.data?.status === "success") {
+                  const verifiedAmount = getMedusaAmount(
+                    Number(verifyData.data.amount || 0),
+                    verifyData.data.currency
+                  );
+
+                  if (verifiedAmount > 0) {
+                    const res = await reconcilePaystackRepairPayment({
+                      container,
+                      ticketId: ticket.id,
+                      reference: rawRef,
+                      amount: verifiedAmount,
+                    });
+                    if (res.captured) {
+                      verifiedCount++;
+                      logger.info(
+                        `[Paystack-Sync] Verified with Paystack and reconciled repair ticket ${ticket.ticket_number || ticket.id} (ref: ${rawRef}, amount: ${verifiedAmount})`
+                      );
+                    }
+                  }
+                }
               }
             } catch (ticketErr: any) {
-              logger.debug?.(`[Paystack-Sync] Note reconciling repair ticket ${ticket.id}: ${ticketErr.message}`);
+              logger.debug?.(`[Paystack-Sync] Note verifying repair ticket ${ticket.id}: ${ticketErr.message}`);
             }
           }
         }

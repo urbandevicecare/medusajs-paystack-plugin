@@ -287,9 +287,16 @@ export async function reconcilePaystackRepairPayment({
     const targetTotal = totalActual > 0 ? totalActual : totalEstimate;
     const amountPaidSoFar = parseNum(ticket.amount_paid);
 
-    const paymentAmount = amount !== undefined && amount !== null && amount > 0
-      ? Number(amount)
-      : Math.max(0, targetTotal - amountPaidSoFar);
+    const paymentAmount = Number(amount || 0);
+    if (!paymentAmount || paymentAmount <= 0) {
+      return {
+        success: false,
+        captured: false,
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticket_number,
+        message: `Cannot reconcile repair payment without a verified positive amount (received: ${amount})`,
+      };
+    }
 
     const newAmountPaid = amountPaidSoFar + paymentAmount;
     const isFullyPaid = targetTotal > 0 ? newAmountPaid >= targetTotal : true;
@@ -317,9 +324,7 @@ export async function reconcilePaystackRepairPayment({
       if (!existingTags.includes("Paid")) {
         existingTags.push("Paid");
       }
-      if (ticket.status === "ready") {
-        newStatus = "collected";
-      } else if (ticket.status === "awaiting_approval") {
+      if (ticket.status === "awaiting_approval") {
         newStatus = "repairing";
       }
     }
@@ -336,10 +341,6 @@ export async function reconcilePaystackRepairPayment({
         paystack_reference: reference,
       },
     };
-
-    if (isFullyPaid && ticket.status === "ready") {
-      updatePayload.collected_at = new Date();
-    }
 
     await repairService.updateRepairTickets(updatePayload);
 

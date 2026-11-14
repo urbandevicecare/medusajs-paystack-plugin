@@ -1083,18 +1083,26 @@ test("reconcilePaystackRepairPayment - auto marks repair ticket as paid, updates
   assert.strictEqual(result.captured, true);
   assert.strictEqual(result.ticketNumber, "101");
 
-  // Verify ticket was updated to captured, tags include Paid, and status advanced to collected
+  // Verify ticket was updated to captured, tags include Paid, but status remains decoupled
   assert.ok(updatedPayload);
   assert.strictEqual(updatedPayload.payment_status, "captured");
   assert.strictEqual(updatedPayload.amount_paid, 2500);
-  assert.strictEqual(updatedPayload.status, "collected");
+  assert.strictEqual(updatedPayload.status, "ready");
   assert.ok(updatedPayload.metadata.tags.includes("Paid"));
-  assert.ok(updatedPayload.collected_at instanceof Date);
 
   // Verify event emitted
   assert.ok(emittedEvent);
   assert.strictEqual(emittedEvent.name, "repair.payment_received");
   assert.strictEqual(emittedEvent.data.amount, 2500);
+
+  // Requirement: Missing or 0 amount must be rejected and not auto-reconciled
+  const zeroRes = await reconcilePaystackRepairPayment({
+    container: mockContainer,
+    reference: "REP-101-1793784000000",
+    amount: 0,
+  });
+  assert.strictEqual(zeroRes.success, false);
+  assert.strictEqual(zeroRes.captured, false);
 });
 
 test("Dashboard Route - caps transactions at 100 and maps repair tickets", async () => {
